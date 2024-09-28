@@ -25,7 +25,9 @@ thread_wake_up_time_less (const struct list_elem *a,
                          const struct list_elem *b, void *aux UNUSED) {
 	const struct thread *ta = list_entry (a, struct thread, sleep_elem);
 	const struct thread *tb = list_entry (b, struct thread, sleep_elem);
-	return ta->wake_up_tick < tb->wake_up_tick;
+	if (ta->wake_up_tick != tb->wake_up_tick)
+		return ta->wake_up_tick < tb->wake_up_tick;
+	return ta->priority > tb->priority;
 }
 
 /* Number of timer ticks since OS booted. */
