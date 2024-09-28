@@ -88,6 +88,24 @@ thread_priority_less (const struct list_elem *a,
 	return ta->priority > tb->priority;
 }
 
+/* Yield only after callers finish updating shared state.  Interrupt
+   handlers request a yield on return instead of switching directly. */
+void
+check_preemption (void) {
+	enum intr_level old_level = intr_disable ();
+	if (!list_empty (&ready_list)) {
+		struct thread *highest = list_entry (list_front (&ready_list),
+		                                     struct thread, elem);
+		if (thread_current ()->priority < highest->priority) {
+			if (intr_context ())
+				intr_yield_on_return ();
+			else
+				thread_yield ();
+		}
+	}
+	intr_set_level (old_level);
+}
+
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -214,6 +232,7 @@ thread_create (const char *name, int priority,
 
 	/* Add to run queue. */
 	thread_unblock (t);
+	check_preemption ();
 
 	return tid;
 }
@@ -319,7 +338,11 @@ thread_yield (void) {
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
+	ASSERT (new_priority >= PRI_MIN && new_priority <= PRI_MAX);
+	enum intr_level old_level = intr_disable ();
 	thread_current ()->priority = new_priority;
+	check_preemption ();
+	intr_set_level (old_level);
 }
 
 /* Returns the current thread's priority. */

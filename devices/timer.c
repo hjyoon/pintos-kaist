@@ -156,6 +156,7 @@ timer_interrupt (struct intr_frame *args UNUSED) {
 		list_pop_front (&sleep_list);
 		thread_unblock (t);
 	}
+	check_preemption ();
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
