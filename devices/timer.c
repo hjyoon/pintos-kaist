@@ -27,10 +27,17 @@ struct sleep_thread {
 static struct sleep_thread sleep_thread_pool[MAX_SLEEP_THREADS];
 static struct list sleep_list;
 static struct list sleep_thread_free_list;
-static bool thread_wake_up_time_less(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
+bool thread_wake_up_time_priority_less(const struct list_elem *a, const struct list_elem *b, void *aux) {
     struct sleep_thread *st_a = list_entry(a, struct sleep_thread, elem);
     struct sleep_thread *st_b = list_entry(b, struct sleep_thread, elem);
-    return st_a->wake_up_tick < st_b->wake_up_tick;
+    if (st_a->wake_up_tick < st_b->wake_up_tick) {
+        return true;
+    } else if (st_a->wake_up_tick > st_b->wake_up_tick) {
+		return false;
+	} else {
+		/* If wake_up_tick is the same, compare priorities (higher priority comes first) */
+		return st_a->t->priority > st_b->t->priority;
+	}
 }
 static struct sleep_thread* allocate_sleep_thread(void) {
     if (!list_empty(&sleep_thread_free_list)) {
@@ -144,7 +151,7 @@ timer_sleep(int64_t ticks) {
     st->wake_up_tick = wake_up_tick;
 
     /* Sort ascending by wake_up_tick */
-    list_insert_ordered(&sleep_list, &st->elem, thread_wake_up_time_less, NULL);
+    list_insert_ordered(&sleep_list, &st->elem, thread_wake_up_time_priority_less, NULL);
     thread_block();
     intr_set_level(old_level);
 }
