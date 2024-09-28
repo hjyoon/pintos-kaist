@@ -79,6 +79,28 @@ static tid_t allocate_tid (void);
 // setup temporal gdt first.
 static uint64_t gdt[3] = { 0, 0x00af9a000000ffff, 0x00cf92000000ffff };
 
+/* NOTE: The beginning where custom code is added */
+bool thread_priority_less(const struct list_elem *a, const struct list_elem *b, void *aux) {
+    struct thread *thread_a = list_entry(a, struct thread, elem);
+    struct thread *thread_b = list_entry(b, struct thread, elem);
+    return thread_a->priority > thread_b->priority;
+}
+void check_preemption() {
+	enum intr_level old_level = intr_disable();
+    if (!list_empty(&ready_list)) {
+        struct thread* highest = list_entry(list_front(&ready_list), struct thread, elem);
+        if (thread_current()->priority < highest->priority) {
+            if (intr_context()) {
+                intr_yield_on_return();
+            } else {
+                thread_yield();
+            }
+        }
+    }
+	intr_set_level(old_level);
+}
+/* NOTE: The end where custom code is added */
+
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -207,6 +229,17 @@ thread_create (const char *name, int priority,
 	/* Add to run queue. */
 	thread_unblock (t);
 
+	/* NOTE: The beginning where custom code is added */
+	/* Add preemption check */
+    if (t->priority > thread_current()->priority) {
+        if (intr_context()) {
+            intr_yield_on_return();
+        } else {
+            thread_yield();
+        }
+    }
+	/* NOTE: The end where custom code is added */
+
 	return tid;
 }
 
@@ -240,7 +273,12 @@ thread_unblock (struct thread *t) {
 
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
-	list_push_back (&ready_list, &t->elem);
+
+	/* NOTE: The beginning where custom code is added */
+	/* Insert the thread into the ready list based on priority. */
+	list_insert_ordered (&ready_list, &t->elem, thread_priority_less, NULL);
+	/* NOTE: The end where custom code is added */
+
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
 }
@@ -302,16 +340,19 @@ thread_yield (void) {
 	ASSERT (!intr_context ());
 
 	old_level = intr_disable ();
-	if (curr != idle_thread)
-		list_push_back (&ready_list, &curr->elem);
+	if (curr != idle_thread) {
+		/* NOTE: The beginning where custom code is added */
+		list_insert_ordered (&ready_list, &curr->elem, thread_priority_less, NULL);
+		/* NOTE: The end where custom code is added */
+	}
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level);
 }
 
-/* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
-	thread_current ()->priority = new_priority;
+    thread_current ()->priority = new_priority;
+    check_preemption();
 }
 
 /* Returns the current thread's priority. */
