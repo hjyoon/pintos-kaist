@@ -96,6 +96,11 @@ struct thread {
 	int64_t wake_up_tick;               /* Earliest tick to become ready. */
 	struct list_elem sleep_elem;       /* Element in the timer sleep list. */
 
+	/* Base priority and locks used for priority donation. */
+	int original_priority;
+	struct lock *waiting_lock;
+	struct list locks;
+
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 
@@ -139,6 +144,8 @@ const char *thread_name (void);
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);
 void check_preemption (void);
+void donate_priority (int, struct thread *);
+void thread_refresh_priority (struct thread *);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
@@ -149,9 +156,5 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 void do_iret (struct intr_frame *tf);
-
-/* NOTE: The beginning where custom code is added */
-bool thread_priority_less(const struct list_elem*, const struct list_elem*, void*);
-/* NOTE: The end where custom code is added */
 
 #endif /* threads/thread.h */

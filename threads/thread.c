@@ -106,6 +106,53 @@ check_preemption (void) {
 	intr_set_level (old_level);
 }
 
+/* Update the ready queue whenever donation changes a ready thread.
+   Blocked waiters are selected by their live priority when awakened. */
+static void
+set_effective_priority (struct thread *t, int priority) {
+	ASSERT (intr_get_level () == INTR_OFF);
+	if (t->priority == priority)
+		return;
+	if (t->status == THREAD_READY)
+		list_remove (&t->elem);
+	t->priority = priority;
+	if (t->status == THREAD_READY)
+		list_insert_ordered (&ready_list, &t->elem, thread_priority_less, NULL);
+}
+
+/* Donate along at most eight lock dependencies, also bounding cycles. */
+void
+donate_priority (int priority, struct thread *holder) {
+	ASSERT (intr_get_level () == INTR_OFF);
+	for (int depth = 0; holder != NULL && depth < 8; depth++) {
+		if (holder->priority < priority)
+			set_effective_priority (holder, priority);
+		priority = holder->priority;
+		if (holder->waiting_lock == NULL)
+			break;
+		holder = holder->waiting_lock->holder;
+	}
+}
+
+/* Recompute from every waiter on every held lock.  Wait queues need
+   not be sorted: a blocked donor can itself receive a donation. */
+void
+thread_refresh_priority (struct thread *t) {
+	ASSERT (intr_get_level () == INTR_OFF);
+	int priority = t->original_priority;
+	for (struct list_elem *e = list_begin (&t->locks);
+	     e != list_end (&t->locks); e = list_next (e)) {
+		struct lock *lock = list_entry (e, struct lock, elem);
+		for (struct list_elem *w = list_begin (&lock->semaphore.waiters);
+		     w != list_end (&lock->semaphore.waiters); w = list_next (w)) {
+			struct thread *waiter = list_entry (w, struct thread, elem);
+			if (waiter->priority > priority)
+				priority = waiter->priority;
+		}
+	}
+	set_effective_priority (t, priority);
+}
+
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -340,7 +387,9 @@ void
 thread_set_priority (int new_priority) {
 	ASSERT (new_priority >= PRI_MIN && new_priority <= PRI_MAX);
 	enum intr_level old_level = intr_disable ();
-	thread_current ()->priority = new_priority;
+	struct thread *current = thread_current ();
+	current->original_priority = new_priority;
+	thread_refresh_priority (current);
 	check_preemption ();
 	intr_set_level (old_level);
 }
@@ -439,6 +488,9 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
+	t->original_priority = priority;
+	t->waiting_lock = NULL;
+	list_init (&t->locks);
 	t->magic = THREAD_MAGIC;
 }
 
