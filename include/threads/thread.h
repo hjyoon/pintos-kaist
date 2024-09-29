@@ -143,4 +143,8 @@ int thread_get_load_avg (void);
 
 void do_iret (struct intr_frame *tf);
 
+/* NOTE: The beginning where custom code is added */
+bool thread_priority_less(const struct list_elem*, const struct list_elem*, void*);
+/* NOTE: The end where custom code is added */
+
 #endif /* threads/thread.h */

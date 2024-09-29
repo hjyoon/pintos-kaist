@@ -109,10 +109,16 @@ sema_up (struct semaphore *sema) {
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
-	if (!list_empty (&sema->waiters))
-		thread_unblock (list_entry (list_pop_front (&sema->waiters),
-					struct thread, elem));
+	if (!list_empty (&sema->waiters)) {
+		/* NOTE: The beginning where custom code is added */
+		list_sort(&sema->waiters, thread_priority_less, NULL);
+		/* NOTE: The end where custom code is added */
+		thread_unblock (list_entry (list_pop_front (&sema->waiters), struct thread, elem));
+	}
 	sema->value++;
+	/* NOTE: The beginning where custom code is added */
+	check_preemption();
+	/* NOTE: The end where custom code is added */
 	intr_set_level (old_level);
 }
 
