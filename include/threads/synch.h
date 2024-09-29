@@ -38,6 +38,10 @@ void cond_wait (struct condition *, struct lock *);
 void cond_signal (struct condition *, struct lock *);
 void cond_broadcast (struct condition *, struct lock *);
 
+/* NOTE: The beginning where custom code is added */
+bool cond_priority_less(const struct list_elem*, const struct list_elem*, void*);
+/* NOTE: The end where custom code is added */
+
 /* Optimization barrier.
  *
  * The compiler will not reorder operations across an
