@@ -92,6 +92,12 @@ struct thread {
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
 
+	/* NOTE: The beginning where custom code is added */
+	int original_priority;      /* Original priority before donation */
+    struct lock* waiting_lock;  /* Locks the current thread is waiting on */
+    struct list locks;          /* List of locks the current thread holds */
+	/* NOTE: The end where custom code is added */
+
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 
@@ -145,6 +151,8 @@ void do_iret (struct intr_frame *tf);
 
 /* NOTE: The beginning where custom code is added */
 bool thread_priority_less(const struct list_elem*, const struct list_elem*, void*);
+void check_preemption(void);
+void donate_priority(int, struct thread*);
 /* NOTE: The end where custom code is added */
 
 #endif /* threads/thread.h */

@@ -99,6 +99,16 @@ void check_preemption() {
     }
 	intr_set_level(old_level);
 }
+void donate_priority(int donated_priority, struct thread* holder) {
+    if (holder->priority < donated_priority) {
+        holder->priority = donated_priority;
+
+        /* If the holder is waiting for another lock, recursively donate */
+        if (holder->waiting_lock != NULL && holder->waiting_lock->holder != NULL) {
+            donate_priority (donated_priority, holder->waiting_lock->holder);
+        }
+    }
+}
 /* NOTE: The end where custom code is added */
 
 /* Initializes the threading system by transforming the code
@@ -350,9 +360,13 @@ thread_yield (void) {
 }
 
 void
-thread_set_priority (int new_priority) {
-    thread_current ()->priority = new_priority;
-    check_preemption();
+thread_set_priority(int new_priority) {
+    struct thread* current = thread_current();
+    current->original_priority = new_priority;
+    if (list_empty(&current->locks) || new_priority > current->priority) {
+        current->priority = new_priority;
+        check_preemption();
+    }
 }
 
 /* Returns the current thread's priority. */
@@ -450,6 +464,12 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
+
+	/* NOTE: The beginning where custom code is added */
+    t->original_priority = priority;
+    list_init (&t->locks);
+    t->waiting_lock = NULL;
+	/* NOTE: The end where custom code is added */
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should

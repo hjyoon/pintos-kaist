@@ -20,6 +20,9 @@ void sema_self_test (void);
 struct lock {
 	struct thread *holder;      /* Thread holding lock (for debugging). */
 	struct semaphore semaphore; /* Binary semaphore controlling access. */
+	/* NOTE: The beginning where custom code is added */
+	struct list_elem elem; /* List elements to be included in holder's lock list */
+	/* NOTE: The end where custom code is added */
 };
 
 void lock_init (struct lock *);
@@ -40,6 +43,7 @@ void cond_broadcast (struct condition *, struct lock *);
 
 /* NOTE: The beginning where custom code is added */
 bool cond_priority_less(const struct list_elem*, const struct list_elem*, void*);
+void restore_priority(void);
 /* NOTE: The end where custom code is added */
 
 /* Optimization barrier.

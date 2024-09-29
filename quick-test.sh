@@ -37,7 +37,15 @@ mlfqs-nice-10 \
 mlfqs-block \
 "
 
-# 인자를 검사하여 실행할 테스트 그룹을 결정
+# 특정 테스트가 목록에 있는지 확인하는 함수
+contains() {
+    case " $1 " in
+        *" $2 "*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# 인자를 검사하여 실행할 테스트를 결정
 if [ "$1" = "alarm" ]; then
     selected_tests="$alarm_tests"
     test_prefix="threads"
@@ -47,8 +55,17 @@ elif [ "$1" = "priority" ]; then
 elif [ "$1" = "mlfqs" ]; then
     selected_tests="$mlfqs_tests"
     test_prefix="threads/mlfqs"
+elif [ -n "$1" ]; then
+    # 입력 인자를 테스트 이름으로 취급
+    selected_tests="$1"
+    # 테스트가 mlfqs_tests에 있는지 확인하여 test_prefix 결정
+    if contains "$mlfqs_tests" "$1"; then
+        test_prefix="threads/mlfqs"
+    else
+        test_prefix="threads"
+    fi
 else
-    echo "Usage: $0 {alarm|priority|mlfqs}"
+    echo "Usage: $0 {alarm|priority|mlfqs|test_name}"
     exit 1
 fi
 
@@ -59,7 +76,7 @@ cd threads && make clean && make && cd build || exit
 count=1
 total=$(echo "$selected_tests" | wc -w)
 for test in $selected_tests; do
-    if [ "$1" = "mlfqs" ]; then
+    if contains "$mlfqs_tests" "$test"; then
         echo "Running test $count of $total (MLFQS): $test"
         pintos -v -k -T 480 -m 20 -- -q -mlfqs run "$test" < /dev/null 2> "tests/$test_prefix/$test.errors" > "tests/$test_prefix/$test.output"
     else
