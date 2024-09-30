@@ -32,6 +32,24 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+/* NOTE: The beginning where custom code is added */
+void restore_priority(void) {
+    struct thread *current = thread_current();
+    int max_priority = current->original_priority;
+    struct list_elem *e;
+    for (e = list_begin(&current->locks); e != list_end(&current->locks); e = list_next(e)) {
+        struct lock *held_lock = list_entry(e, struct lock, elem);
+        if (!list_empty(&held_lock->semaphore.waiters)) {
+            struct thread *waiting_thread = list_entry(list_front(&held_lock->semaphore.waiters), struct thread, elem);
+            if (waiting_thread->priority > max_priority) {
+                max_priority = waiting_thread->priority;
+            }
+        }
+    }
+    current->priority = max_priority;
+}
+/* NOTE: The end where custom code is added */
+
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
    manipulating it:
@@ -66,7 +84,9 @@ sema_down (struct semaphore *sema) {
 
 	old_level = intr_disable ();
 	while (sema->value == 0) {
-		list_push_back (&sema->waiters, &thread_current ()->elem);
+		/* NOTE: The beginning where custom code is added */
+		list_insert_ordered(&sema->waiters, &thread_current()->elem, thread_priority_less, NULL);
+		/* NOTE: The end where custom code is added */
 		thread_block ();
 	}
 	sema->value--;
@@ -109,10 +129,16 @@ sema_up (struct semaphore *sema) {
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
-	if (!list_empty (&sema->waiters))
-		thread_unblock (list_entry (list_pop_front (&sema->waiters),
-					struct thread, elem));
+	if (!list_empty (&sema->waiters)) {
+		/* NOTE: The beginning where custom code is added */
+		list_sort(&sema->waiters, thread_priority_less, NULL);
+		/* NOTE: The end where custom code is added */
+		thread_unblock (list_entry (list_pop_front (&sema->waiters), struct thread, elem));
+	}
 	sema->value++;
+	/* NOTE: The beginning where custom code is added */
+	check_preemption();
+	/* NOTE: The end where custom code is added */
 	intr_set_level (old_level);
 }
 
@@ -182,14 +208,29 @@ lock_init (struct lock *lock) {
    interrupt handler.  This function may be called with
    interrupts disabled, but interrupts will be turned back on if
    we need to sleep. */
-void
-lock_acquire (struct lock *lock) {
-	ASSERT (lock != NULL);
-	ASSERT (!intr_context ());
-	ASSERT (!lock_held_by_current_thread (lock));
 
-	sema_down (&lock->semaphore);
-	lock->holder = thread_current ();
+void lock_acquire(struct lock *lock) {
+    ASSERT(lock != NULL);
+    ASSERT(!intr_context());
+    ASSERT(!lock_held_by_current_thread(lock));
+
+	/* NOTE: The beginning where custom code is added */
+	enum intr_level old_level = intr_disable();
+    struct thread *current_thread = thread_current();
+    if (lock->holder != NULL) {
+        current_thread->waiting_lock = lock;
+        donate_priority(current_thread->priority, lock->holder);
+    }
+	/* NOTE: The end where custom code is added */
+
+    sema_down(&lock->semaphore);
+
+	/* NOTE: The beginning where custom code is added */
+    lock->holder = current_thread;
+    current_thread->waiting_lock = NULL;
+    list_push_back(&current_thread->locks, &lock->elem);
+	intr_set_level(old_level);
+	/* NOTE: The end where custom code is added */
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -217,13 +258,23 @@ lock_try_acquire (struct lock *lock) {
    An interrupt handler cannot acquire a lock, so it does not
    make sense to try to release a lock within an interrupt
    handler. */
-void
-lock_release (struct lock *lock) {
-	ASSERT (lock != NULL);
-	ASSERT (lock_held_by_current_thread (lock));
 
-	lock->holder = NULL;
-	sema_up (&lock->semaphore);
+void lock_release(struct lock *lock) {
+    ASSERT(lock != NULL);
+    ASSERT(lock_held_by_current_thread(lock));
+
+	/* NOTE: The beginning where custom code is added */
+	enum intr_level old_level = intr_disable();
+    list_remove(&lock->elem);
+	/* NOTE: The end where custom code is added */
+
+    lock->holder = NULL;
+
+	/* NOTE: The beginning where custom code is added */
+    restore_priority();
+	intr_set_level(old_level);
+    sema_up(&lock->semaphore);
+	/* NOTE: The end where custom code is added */
 }
 
 /* Returns true if the current thread holds LOCK, false
@@ -240,6 +291,9 @@ lock_held_by_current_thread (const struct lock *lock) {
 struct semaphore_elem {
 	struct list_elem elem;              /* List element. */
 	struct semaphore semaphore;         /* This semaphore. */
+	/* NOTE: The beginning where custom code is added */
+	int priority;						/* Priority. */
+	/* NOTE: The end where custom code is added */
 };
 
 /* Initializes condition variable COND.  A condition variable
@@ -282,7 +336,14 @@ cond_wait (struct condition *cond, struct lock *lock) {
 	ASSERT (lock_held_by_current_thread (lock));
 
 	sema_init (&waiter.semaphore, 0);
-	list_push_back (&cond->waiters, &waiter.elem);
+
+	/* NOTE: The beginning where custom code is added */
+	/* Save priority of current thread */
+	waiter.priority = thread_get_priority();
+	/* Insert waiters in priority order */
+    list_insert_ordered(&cond->waiters, &waiter.elem, cond_priority_less, NULL);
+	/* NOTE: The end where custom code is added */
+
 	lock_release (lock);
 	sema_down (&waiter.semaphore);
 	lock_acquire (lock);
@@ -321,3 +382,11 @@ cond_broadcast (struct condition *cond, struct lock *lock) {
 	while (!list_empty (&cond->waiters))
 		cond_signal (cond, lock);
 }
+
+/* NOTE: The beginning where custom code is added */
+bool cond_priority_less(const struct list_elem *a, const struct list_elem *b, void *aux) {
+    struct semaphore_elem* sema_a = list_entry(a, struct semaphore_elem, elem);
+    struct semaphore_elem* sema_b = list_entry(b, struct semaphore_elem, elem);
+    return sema_a->priority > sema_b->priority;
+}
+/* NOTE: The end where custom code is added */
