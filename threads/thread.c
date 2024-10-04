@@ -360,6 +360,9 @@ thread_create (const char *name, int priority,
 		t->recent_cpu = 0;
 	}
 
+	t->parent = thread_current ();
+	thread_current ()->child = t;
+
 	/* Add to run queue. */
 	thread_unblock (t);
 	check_preemption ();
@@ -589,6 +592,10 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->waiting_lock = NULL;
 	list_init (&t->locks);
 	t->magic = THREAD_MAGIC;
+	t->parent = NULL;
+	t->child = NULL;
+	sema_init (&t->sema_exit, 0);
+	t->exit_status = 0;
 
 	enum intr_level old_level = intr_disable ();
 	if (thread_mlfqs) {

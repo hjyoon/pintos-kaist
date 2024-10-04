@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -106,6 +107,12 @@ struct thread {
 	int original_priority;
 	struct lock *waiting_lock;
 	struct list locks;
+
+	/* Parent/child state used by the argument-passing implementation. */
+	struct thread *parent;
+	struct thread *child;
+	struct semaphore sema_exit;
+	int exit_status;
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
