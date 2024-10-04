@@ -5,6 +5,11 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+
+/* NOTE: The beginning where custom code is added */
+#include "threads/synch.h"
+/* NOTE: The end where custom code is added */
+
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -96,6 +101,13 @@ struct thread {
 	int original_priority;      /* Original priority before donation */
     struct lock* waiting_lock;  /* Locks the current thread is waiting on */
     struct list locks;          /* List of locks the current thread holds */
+	/* NOTE: The end where custom code is added */
+	
+	/* NOTE: The beginning where custom code is added */
+	struct thread* parent;              /* Parent thread pointer */
+	struct thread* child;               /* Child thread pointer */
+    struct semaphore sema_exit;         /* Semaphore to wait for child thread to exit */
+    int exit_status;                    /* Exit status of child thread */
 	/* NOTE: The end where custom code is added */
 
 	/* Shared between thread.c and synch.c. */

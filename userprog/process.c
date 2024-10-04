@@ -22,6 +22,46 @@
 #include "vm/vm.h"
 #endif
 
+/* NOTE: The beginning where custom code is added */
+/* Maximum number of arguments */
+#define MAX_ARGC 128
+/* NOTE: The end where custom code is added */
+
+static bool setup_arguments(int argc, char **argv, void **rsp) {
+    uintptr_t rsp_val = (uintptr_t) *rsp;
+
+    /* Put each argument string on the stack (in reverse order) */
+    char *argv_addresses[argc];  // An array to store the address of each argument
+    for (int i = argc - 1; i >= 0; i--) {
+        int len = strlen(argv[i]) + 1;  // Length of argument string (including null character)
+        rsp_val -= len;
+        memcpy((void *)rsp_val, argv[i], len);  // Copy string to stack
+        argv_addresses[i] = (char *)rsp_val;  // Store string address
+    }
+
+    /* 8-byte alignment for word alignment */
+    rsp_val &= ~0x7;
+
+    /* Place the argv pointer array on the stack */
+    for (int i = argc; i >= 0; i--) {
+        rsp_val -= sizeof(char *);
+        if (i == argc) {
+            *(uintptr_t *)rsp_val = 0; // Add NULL pointer
+        } else {
+            *(uintptr_t *)rsp_val = (uintptr_t)argv_addresses[i]; // Add each argument address
+        }
+    }
+
+	/* Store fake return address on stack */
+    rsp_val -= sizeof(void *);
+    *(uintptr_t *)rsp_val = 0;  // fake return address (usually 0)
+
+    /* Stack pointer update */
+    *rsp = (void *)rsp_val;
+
+    return true;
+}
+
 static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
@@ -165,10 +205,33 @@ process_exec (void *f_name) {
 	char *file_name = f_name;
 	bool success;
 
+	/* NOTE: The beginning where custom code is added */
+    /* Separate arguments */
+    char *fn_copy = palloc_get_page(0);
+    if (fn_copy == NULL)
+        return -1;
+    strlcpy(fn_copy, file_name, PGSIZE);
+
+    /* Separate the arguments with spaces and store it in the argv array */
+    char *save_ptr;
+    int argc = 0;
+    char *argv[MAX_ARGC];  // Limit the maximum number of arguments
+    char *token = strtok_r(fn_copy, " ", &save_ptr);
+    while (token != NULL && argc < MAX_ARGC) {
+        argv[argc++] = token;
+        token = strtok_r(NULL, " ", &save_ptr);
+    }
+	/* NOTE: The end where custom code is added */
+
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
 	 * it stores the execution information to the member. */
 	struct intr_frame _if;
+
+	/* NOTE: The beginning where custom code is added */
+	memset(&_if, 0, sizeof _if);  // Initialize intr_frame to 0
+	/* NOTE: The end where custom code is added */
+
 	_if.ds = _if.es = _if.ss = SEL_UDSEG;
 	_if.cs = SEL_UCSEG;
 	_if.eflags = FLAG_IF | FLAG_MBS;
@@ -176,13 +239,32 @@ process_exec (void *f_name) {
 	/* We first kill the current context */
 	process_cleanup ();
 
+	/* Set program name to current thread name */
+    strlcpy(thread_current()->name, argv[0], sizeof(thread_current()->name));
+
+	/* NOTE: The beginning where custom code is added */
 	/* And then load the binary */
-	success = load (file_name, &_if);
+	success = load (argv[0], &_if);
 
 	/* If load failed, quit. */
-	palloc_free_page (file_name);
-	if (!success)
-		return -1;
+    if (!success) {
+        palloc_free_page(fn_copy);
+        return -1;
+    }
+
+	/* Place arguments on the stack */
+    if (!setup_arguments(argc, argv, &_if.rsp)) {
+        palloc_free_page(fn_copy);
+        return -1;
+    }
+
+	/* Set up argument registers (start address of argc in rdi, argv in rsi) */
+    _if.R.rdi = argc;
+    _if.R.rsi = _if.rsp + sizeof(void *);;  // Address of argv array
+
+    /* Free copy of file name */
+	palloc_free_page(fn_copy);
+	/* NOTE: The end where custom code is added */
 
 	/* Start switched process. */
 	do_iret (&_if);
@@ -200,23 +282,43 @@ process_exec (void *f_name) {
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) {
+process_wait(tid_t child_tid) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-	return -1;
+
+    struct thread* current = thread_current();
+    struct thread* child = current->child;
+
+    /* Check if child thread exists and TID matches */
+    if (child == NULL || child->tid != child_tid) {
+        return -1;
+    }
+
+    /* Wait for child thread to terminate */
+    sema_down(&child->sema_exit);
+
+    /* Return the exit status of the child thread */
+    return child->exit_status;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
 void
-process_exit (void) {
-	struct thread *curr = thread_current ();
+process_exit(void) {
+    struct thread *curr = thread_current();
 	/* TODO: Your code goes here.
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
 
-	process_cleanup ();
+    process_cleanup();
+
+	/* NOTE: The beginning where custom code is added */
+    /* Notify parent process of termination */
+    if (curr->parent != NULL) {
+        sema_up(&curr->sema_exit);
+    }
+	/* NOTE: The end where custom code is added */
 }
 
 /* Free the current process's resources. */

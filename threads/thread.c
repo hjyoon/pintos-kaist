@@ -236,6 +236,13 @@ thread_create (const char *name, int priority,
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
 
+	/* NOTE: The beginning where custom code is added */
+	t->parent = thread_current();
+	thread_current()->child = t;
+	sema_init(&t->sema_exit, 0);
+    t->exit_status = 0;
+	/* NOTE: The end where custom code is added */
+
 	/* Add to run queue. */
 	thread_unblock (t);
 
@@ -469,6 +476,13 @@ init_thread (struct thread *t, const char *name, int priority) {
     t->original_priority = priority;
     list_init (&t->locks);
     t->waiting_lock = NULL;
+	/* NOTE: The end where custom code is added */
+
+	/* NOTE: The beginning where custom code is added */
+	t->parent = NULL;
+	t->child = NULL;
+    sema_init(&t->sema_exit, 0);
+    t->exit_status = 0;
 	/* NOTE: The end where custom code is added */
 }
 
