@@ -45,6 +45,18 @@ args-many \
 args-dbl-space \
 "
 
+bad_tests=" \
+bad-jump \
+bad-jump2 \
+bad-read \
+bad-read2 \
+bad-write \
+bad-write2 \
+"
+
+# userprog_tests는 args_tests와 bad_tests를 포함
+userprog_tests="$args_tests $bad_tests"
+
 # 특정 테스트가 목록에 있는지 확인하는 함수
 contains() {
     case " $1 " in
@@ -90,19 +102,22 @@ elif [ "$1" = "mlfqs" ]; then
 elif [ "$1" = "args" ]; then
     selected_tests="$args_tests"
     test_prefix="userprog"
+elif [ "$1" = "bad" ]; then
+    selected_tests="$bad_tests"
+    test_prefix="userprog"
 elif [ -n "$1" ]; then
     # 입력 인자를 테스트 이름으로 취급
     selected_tests="$1"
-    # 테스트가 mlfqs_tests에 있는지 확인하여 test_prefix 결정
+    # 테스트가 mlfqs_tests, args_tests, 또는 bad_tests에 있는지 확인하여 test_prefix 결정
     if contains "$mlfqs_tests" "$1"; then
         test_prefix="threads/mlfqs"
-    elif contains "$args_tests" "$1"; then
+    elif contains "$userprog_tests" "$1"; then
         test_prefix="userprog"
     else
         test_prefix="threads"
     fi
 else
-    echo "Usage: $0 {alarm|priority|mlfqs|args|test_name}"
+    echo "Usage: $0 {alarm|priority|mlfqs|args|bad|test_name}"
     exit 1
 fi
 
@@ -120,9 +135,13 @@ for test in $selected_tests; do
     if contains "$mlfqs_tests" "$test"; then
         echo "Running test $count of $total (MLFQS): $test"
         pintos -v -k -T 480 -m 20 -- -q -mlfqs run "$test" < /dev/null 2> "tests/$test_prefix/$test.errors" > "tests/$test_prefix/$test.output"
-    elif contains "$args_tests" "$test"; then
+    elif contains "$userprog_tests" "$test"; then
         args=$(get_args "$test")
-        echo "Running test $count of $total (ARGS): $test with args: $args"
+        if contains "$args_tests" "$test"; then
+            echo "Running test $count of $total (ARGS): $test with args: $args"
+        else
+            echo "Running test $count of $total (USERPROG): $test"
+        fi
         pintos -v -k -T 60 -m 20 --fs-disk=10 -p "tests/userprog/$test:$test" -- -q -f run "$test $args" < /dev/null 2> "tests/$test_prefix/$test.errors" > "tests/$test_prefix/$test.output"
     else
         echo "Running test $count of $total: $test"
@@ -135,10 +154,6 @@ done
 count=1
 for test in $selected_tests; do
     echo "Running Perl check $count of $total: $test"
-    if contains "$args_tests" "$test"; then
-        perl -I../.. "../../tests/$test_prefix/$test.ck" "tests/$test_prefix/$test" "tests/$test_prefix/$test.result"
-    else
-        perl -I../.. "../../tests/$test_prefix/$test.ck" "tests/$test_prefix/$test" "tests/$test_prefix/$test.result"
-    fi
+    perl -I../.. "../../tests/$test_prefix/$test.ck" "tests/$test_prefix/$test" "tests/$test_prefix/$test.result"
     count=$((count + 1))
 done

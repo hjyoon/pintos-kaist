@@ -42,14 +42,14 @@ static bool setup_arguments(int argc, char **argv, void **rsp) {
     /* 8-byte alignment for word alignment */
     rsp_val &= ~0x7;
 
+	/* Add NULL pointer */
+	rsp_val -= sizeof(char *);
+	*(uintptr_t *)rsp_val = 0;
+
     /* Place the argv pointer array on the stack */
-    for (int i = argc; i >= 0; i--) {
+    for (int i = argc-1; i >= 0; i--) {
         rsp_val -= sizeof(char *);
-        if (i == argc) {
-            *(uintptr_t *)rsp_val = 0; // Add NULL pointer
-        } else {
-            *(uintptr_t *)rsp_val = (uintptr_t)argv_addresses[i]; // Add each argument address
-        }
+		*(uintptr_t *)rsp_val = (uintptr_t)argv_addresses[i]; // Add each argument address
     }
 
 	/* Store fake return address on stack */
@@ -310,6 +310,13 @@ process_exit(void) {
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
+
+	/* NOTE: The beginning where custom code is added */
+	/* If there is no page table, it is considered a kernel thread. */
+	if (!curr->pml4 == NULL) {
+		printf("%s: exit(%d)\n", curr->name, curr->exit_status);
+	}
+	/* NOTE: The end where custom code is added */
 
     process_cleanup();
 
