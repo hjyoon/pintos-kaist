@@ -363,6 +363,11 @@ thread_create (const char *name, int priority,
 	t->parent = thread_current ();
 	thread_current ()->child = t;
 
+	/* NOTE: The beginning where custom code is added */
+	list_init(&t->file_list);
+	lock_init(&t->file_list_lock);
+	/* NOTE: The end where custom code is added */
+
 	/* Add to run queue. */
 	thread_unblock (t);
 	check_preemption ();

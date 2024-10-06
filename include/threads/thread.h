@@ -114,6 +114,12 @@ struct thread {
 	struct semaphore sema_exit;
 	int exit_status;
 
+	/* NOTE: The beginning where custom code is added */
+	struct list file_list;      /* List of open file descriptors */
+    struct lock file_list_lock; /* Lock for thread-safe access to file_list */
+	/* NOTE: The end where custom code is added */
+
+
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 
