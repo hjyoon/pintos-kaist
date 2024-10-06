@@ -6,10 +6,12 @@
 #include "threads/loader.h"
 
 /* NOTE: The beginning where custom code is added */
+#include "threads/init.h"
 #include "threads/palloc.h"
 #include <string.h>
 #include "filesys/file.h"
 #include "filesys/filesys.h"
+#include "devices/input.h"
 /* NOTE: The end where custom code is added */
 
 #include "userprog/gdt.h"
@@ -56,6 +58,10 @@ syscall_init (void) {
 	 * mode stack. Therefore, we masked the FLAG_FL. */
 	write_msr(MSR_SYSCALL_MASK,
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
+}
+
+void sys_halt(void) {
+    power_off();
 }
 
 void sys_exit(int status) {
@@ -155,6 +161,20 @@ bool copy_from_user(void *kernel_dst, const void *user_src, size_t size) {
             return false;
         }
         k_dst[i] = u_src[i];
+    }
+    return true;
+}
+
+bool copy_to_user(void *user_dst, const void *kernel_src, size_t size) {
+    size_t i;
+    uint8_t *u_dst = (uint8_t *)user_dst;
+    const uint8_t *k_src = (const uint8_t *)kernel_src;
+
+    for (i = 0; i < size; i++) {
+        if (!is_valid_user_pointer(u_dst + i)) {
+            return false;
+        }
+        u_dst[i] = k_src[i];
     }
     return true;
 }
@@ -370,6 +390,75 @@ bool sys_create(const char *file, unsigned initial_size) {
     return success;
 }
 
+int sys_read(int fd, void *buffer, unsigned size) {
+    /* If size is zero, return zero without accessing buffer */
+    if (size == 0) {
+        return 0;
+    }
+
+    /* Validate the user buffer */
+    if (!is_valid_user_buffer(buffer, size)) {
+        sys_exit(-1); // Invalid user buffer
+    }
+
+    if (fd == STDIN_FILENO) {
+        /* Read from the console (standard input) */
+        uint8_t *buf = (uint8_t *)buffer;
+        for (unsigned i = 0; i < size; i++) {
+            char c = input_getc();
+            if (c == '\r') {
+                c = '\n';
+            }
+            buf[i] = c;
+            if (c == '\n') {
+                return i + 1;
+            }
+        }
+        return size;
+    } else {
+        /* Reading from a file descriptor other than standard input */
+        struct file *f = find_file_descriptor(fd);
+        if (f == NULL) {
+            return -1; // Invalid file descriptor
+        }
+
+        /* Allocate a kernel buffer */
+        void *kernel_buffer = malloc(size);
+        if (kernel_buffer == NULL) {
+            return -1; // Memory allocation failed
+        }
+
+        /* Read from the file */
+        int bytes_read = file_read(f, kernel_buffer, size);
+
+        if (bytes_read < 0) {
+            free(kernel_buffer);
+            return -1; // Read error
+        }
+
+        /* Copy data from kernel to user space */
+        if (!copy_to_user(buffer, kernel_buffer, bytes_read)) {
+            free(kernel_buffer);
+            sys_exit(-1); // Invalid user memory access
+        }
+
+        /* Free the kernel buffer */
+        free(kernel_buffer);
+
+        return bytes_read;
+    }
+}
+
+int sys_filesize(int fd) {
+    struct file *f = find_file_descriptor(fd);
+    if (f == NULL) {
+        return -1; // 유효하지 않은 파일 디스크립터
+    }
+    off_t size = file_length(f);
+    return size;
+}
+
+
 void syscall_handler(struct intr_frame *f) {
 	// TODO: Your implementation goes here.
 	// printf ("system call!\n");
@@ -388,6 +477,10 @@ void syscall_handler(struct intr_frame *f) {
 
     /* Processing according to system call number */
     switch (syscall_number) {
+        case SYS_HALT:
+            sys_halt();
+            break;
+
         case SYS_EXIT:
             {
                 /* In exit(status), status is passed to rdi */
@@ -435,10 +528,31 @@ void syscall_handler(struct intr_frame *f) {
             }
             break;
 
+        case SYS_READ:
+            {
+                int fd = (int)f->R.rdi;          // File descriptor
+                void *buffer = (void *)f->R.rsi; // Buffer to read into
+                unsigned size = (unsigned)f->R.rdx; // Number of bytes to read
+
+                int bytes_read = sys_read(fd, buffer, size);
+
+                /* Set return value */
+                f->R.rax = bytes_read;
+            }
+            break;
+
+        case SYS_FILESIZE:
+            {
+                int fd = (int) f->R.rdi;
+                int size = sys_filesize(fd);
+                f->R.rax = size;
+            }
+            break;
+
         /* Handling other system calls */
 
         default:
             // printf("Unknown system call: %d\n", syscall_number);
-            thread_exit();
+            sys_exit(-1);
     }
 }
