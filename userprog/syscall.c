@@ -452,10 +452,45 @@ int sys_read(int fd, void *buffer, unsigned size) {
 int sys_filesize(int fd) {
     struct file *f = find_file_descriptor(fd);
     if (f == NULL) {
-        return -1; // 유효하지 않은 파일 디스크립터
+        return -1; // Invalid file descriptor
     }
     off_t size = file_length(f);
     return size;
+}
+
+/* Implement sys_seek function */
+void sys_seek(int fd, unsigned position) {
+    struct file *f = find_file_descriptor(fd);
+    if (f == NULL) {
+        sys_exit(-1); // Invalid file descriptor
+    }
+    file_seek(f, position);
+}
+
+bool sys_remove(const char *file) {
+    /* If file is NULL, terminate the process */
+    if (file == NULL) {
+        sys_exit(-1);
+    }
+
+    /* Validate the user pointer */
+    if (!is_valid_user_pointer(file)) {
+        sys_exit(-1); // Invalid user pointer
+    }
+
+    char filename[NAME_MAX + 1]; // +1 for null terminator
+    if (!get_user_string(file, filename, sizeof(filename))) {
+        sys_exit(-1); // Invalid user memory access or filename too long
+    }
+
+    /* Check if filename is empty */
+    if (filename[0] == '\0') {
+        return false; // Cannot remove a file with an empty name
+    }
+
+    /* Remove the file */
+    bool success = filesys_remove(filename);
+    return success;
 }
 
 
@@ -546,6 +581,22 @@ void syscall_handler(struct intr_frame *f) {
                 int fd = (int) f->R.rdi;
                 int size = sys_filesize(fd);
                 f->R.rax = size;
+            }
+            break;
+
+        case SYS_SEEK:
+            {
+                int fd = (int) f->R.rdi;             // File descriptor
+                unsigned position = (unsigned) f->R.rsi; // New position
+                sys_seek(fd, position);
+            }
+            break;
+
+        case SYS_REMOVE:
+            {
+                const char *file = (const char *) f->R.rdi;
+                bool success = sys_remove(file);
+                f->R.rax = success;
             }
             break;
 
