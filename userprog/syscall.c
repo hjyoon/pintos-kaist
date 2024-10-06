@@ -8,6 +8,8 @@
 /* NOTE: The beginning where custom code is added */
 #include "threads/palloc.h"
 #include <string.h>
+#include "filesys/file.h"
+#include "filesys/filesys.h"
 /* NOTE: The end where custom code is added */
 
 #include "userprog/gdt.h"
@@ -30,6 +32,19 @@ void syscall_handler (struct intr_frame *);
 #define MSR_LSTAR 0xc0000082        /* Long mode SYSCALL target */
 #define MSR_SYSCALL_MASK 0xc0000084 /* Mask for the eflags */
 
+/* NOTE: The beginning where custom code is added */
+#define NAME_MAX 512
+
+/* Structure to represent a file descriptor */
+struct file_descriptor {
+    int fd;                     /* File descriptor number */
+    struct file *file;          /* Pointer to the open file */
+    struct list_elem elem;      /* List element */
+};
+
+struct file *find_file_descriptor(int fd);
+/* NOTE: The end where custom code is added */
+
 void
 syscall_init (void) {
 	write_msr(MSR_STAR, ((uint64_t)SEL_UCSEG - 0x10) << 48  |
@@ -43,14 +58,12 @@ syscall_init (void) {
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
 }
 
-/* The main system call interface */
-// void
-// syscall_handler (struct intr_frame *f UNUSED) {
-// 	// TODO: Your implementation goes here.
-// 	printf ("system call!\n");
-// 	thread_exit ();
-// }
+void sys_exit(int status) {
+    thread_current()->exit_status = status;
+    thread_exit();
+}
 
+/* The main system call interface */
 const char* syscall_name(int syscall_number) {
     switch (syscall_number) {
         case SYS_HALT:
@@ -106,42 +119,255 @@ bool verify_user_buffer(const void *buffer, unsigned size) {
 	return true;
 }
 
-/* copy_user_buffer: function to safely copy user buffer to kernel buffer */
-bool copy_user_buffer(const void *user_buffer, void *kernel_buffer, unsigned size) {
-	/* In actual implementation, exception handling is required to prevent page faults */
-	memcpy(kernel_buffer, user_buffer, size);
-	return true;
+bool is_valid_user_pointer(const void *ptr) {
+    /* Check if the pointer is not NULL and lies within user address space */
+    if (ptr == NULL || !is_user_vaddr(ptr)) {
+        return false;
+    }
+
+    /* Check if the pointer is mapped in the page table */
+    if (pml4_get_page(thread_current()->pml4, ptr) == NULL) {
+        return false;
+    }
+
+    return true;
+}
+
+bool is_valid_user_buffer(const void *buffer, size_t size) {
+    const uint8_t *ptr = (const uint8_t *) buffer;
+    size_t i;
+
+    for (i = 0; i < size; i++) {
+        if (!is_valid_user_pointer(ptr + i)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool copy_from_user(void *kernel_dst, const void *user_src, size_t size) {
+    size_t i;
+    uint8_t *k_dst = (uint8_t *) kernel_dst;
+    const uint8_t *u_src = (const uint8_t *) user_src;
+
+    for (i = 0; i < size; i++) {
+        if (!is_valid_user_pointer(u_src + i)) {
+            return false;
+        }
+        k_dst[i] = u_src[i];
+    }
+    return true;
+}
+
+bool get_user_string(const char *user_src, char *kernel_dst, size_t max_length) {
+    size_t i;
+    for (i = 0; i < max_length; i++) {
+        if (!is_valid_user_pointer(user_src + i)) {
+            return false;
+        }
+        kernel_dst[i] = user_src[i];
+        if (kernel_dst[i] == '\0') {
+            return true;
+        }
+    }
+    /* String exceeds maximum length */
+    return false;
 }
 
 int sys_write(int fd, const void *buffer, unsigned size) {
-	if (fd != STDOUT_FILENO) {
-		return -1;
-	}
+    /* If size is zero, return zero without accessing buffer */
+    if (size == 0) {
+        return 0;
+    }
 
-	if (!verify_user_buffer(buffer, size)) {
-		return -1;
-	}
+    /* Validate the user buffer */
+    if (!is_valid_user_buffer(buffer, size)) {
+        sys_exit(-1); // Invalid user buffer
+    }
 
-	/* Allocate kernel buffer */
-	char *kernel_buffer = palloc_get_page(PAL_ZERO);
-	if (kernel_buffer == NULL) {
-		return -1; // Memory allocation failed
-	}
+    if (fd == STDOUT_FILENO) {
+        /* Write directly from user buffer */
+        putbuf((const char *) buffer, size);
+        return size;
+    } else {
+        /* Writing to a file descriptor other than standard output */
+        struct file *f = find_file_descriptor(fd);
+        if (f == NULL) {
+            return -1; // Invalid file descriptor
+        }
 
-	/* Copy user buffer to kernel buffer */
-	if (!copy_user_buffer(buffer, kernel_buffer, size)) {
-		palloc_free_page(kernel_buffer);
-		return -1; // Copy failed
-	}
+        /* Allocate a kernel buffer */
+        void *kernel_buffer = malloc(size);
+        if (kernel_buffer == NULL) {
+            return -1; // Memory allocation failed
+        }
 
-	/* Output data to console */
-	putbuf(kernel_buffer, size);
+        /* Copy data from user to kernel space */
+        if (!copy_from_user(kernel_buffer, buffer, size)) {
+            free(kernel_buffer);
+            sys_exit(-1); // Invalid user memory access
+        }
 
-	/* Free kernel buffer */
-	palloc_free_page(kernel_buffer);
+        /* Write to the file */
+        int bytes_written = file_write(f, kernel_buffer, size);
 
-	/* Return the number of bytes actually written */
-	return size;
+        /* Free the kernel buffer */
+        free(kernel_buffer);
+
+        return bytes_written;
+    }
+}
+
+/* Returns the next available file descriptor starting from 2 */
+static int get_next_fd(void) {
+    struct thread *t = thread_current();
+    int fd = 2; /* Start from 2 as 0 and 1 are reserved */
+
+    lock_acquire(&t->file_list_lock);
+    while (1) {
+        bool found = false;
+        struct list_elem *e;
+
+        for (e = list_begin(&t->file_list); e != list_end(&t->file_list); e = list_next(e)) {
+            struct file_descriptor *fd_struct = list_entry(e, struct file_descriptor, elem);
+            if (fd_struct->fd == fd) {
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            lock_release(&t->file_list_lock);
+            return fd;
+        }
+        fd++;
+    }
+    /* Not reached */
+}
+
+/* Define find_file_descriptor first */
+struct file *find_file_descriptor(int fd) {
+    struct thread *t = thread_current();
+    struct list_elem *e;
+
+    lock_acquire(&t->file_list_lock);
+    for (e = list_begin(&t->file_list); e != list_end(&t->file_list); e = list_next(e)) {
+        struct file_descriptor *fd_struct = list_entry(e, struct file_descriptor, elem);
+        if (fd_struct->fd == fd) {
+            lock_release(&t->file_list_lock);
+            return fd_struct->file;
+        }
+    }
+    lock_release(&t->file_list_lock);
+    return NULL; /* Not found */
+}
+
+int sys_open(const char *file) {
+    /* If file is NULL, terminate the process */
+    if (file == NULL) {
+        sys_exit(-1);
+    }
+
+    /* Validate the user pointer */
+    if (!is_valid_user_pointer(file)) {
+        sys_exit(-1); // Invalid user pointer
+    }
+
+    char filename[NAME_MAX + 1]; // +1 for null terminator
+    if (!get_user_string(file, filename, sizeof(filename))) {
+        sys_exit(-1); // Invalid user memory access or filename too long
+    }
+
+    /* Check if filename is empty */
+    if (filename[0] == '\0') {
+        return -1; // Cannot open a file with an empty name
+    }
+
+    /* Open the file using the file system */
+    struct file *f = filesys_open(filename);
+    if (f == NULL) {
+        return -1; /* File could not be opened */
+    }
+
+    /* Assign a new file descriptor */
+    int fd = get_next_fd();
+    if (fd == -1) {
+        file_close(f);
+        return -1; // Could not get a valid file descriptor
+    }
+
+    /* Allocate and initialize a new file_descriptor structure */
+    struct file_descriptor *fd_struct = malloc(sizeof(struct file_descriptor));
+    if (fd_struct == NULL) {
+        file_close(f);
+        return -1; /* Memory allocation failed */
+    }
+    fd_struct->fd = fd;
+    fd_struct->file = f;
+
+    /* Add the new file descriptor to the thread's file list */
+    struct thread *t = thread_current();
+    lock_acquire(&t->file_list_lock);
+    list_push_back(&t->file_list, &fd_struct->elem);
+    lock_release(&t->file_list_lock);
+
+    /* Return the file descriptor */
+    return fd;
+}
+
+/* Example implementation for sys_close */
+int sys_close(int fd) {
+    if (fd == STDIN_FILENO || fd == STDOUT_FILENO) {
+        return -1;
+    }
+
+    struct file *f = find_file_descriptor(fd);
+    if (f == NULL) {
+        return -1;
+    }
+
+    file_close(f);
+
+    struct thread *t = thread_current();
+    lock_acquire(&t->file_list_lock);
+    struct list_elem *e;
+    for (e = list_begin(&t->file_list); e != list_end(&t->file_list); e = list_next(e)) {
+        struct file_descriptor *fd_struct = list_entry(e, struct file_descriptor, elem);
+        if (fd_struct->fd == fd) {
+            list_remove(e);
+            free(fd_struct);
+            break;
+        }
+    }
+    lock_release(&t->file_list_lock);
+
+    return 0;
+}
+
+bool sys_create(const char *file, unsigned initial_size) {
+    /* If file is NULL, terminate the process */
+    if (file == NULL) {
+        sys_exit(-1);
+    }
+
+    /* Validate the user pointer */
+    if (!is_valid_user_pointer(file)) {
+        sys_exit(-1); // Invalid user pointer
+    }
+
+    char filename[NAME_MAX + 1]; // +1 for null terminator
+    if (!get_user_string(file, filename, sizeof(filename))) {
+        sys_exit(-1); // Invalid user memory access or filename too long
+    }
+
+    /* Check if filename is empty */
+    if (filename[0] == '\0') {
+        return false; // Cannot create a file with an empty name
+    }
+
+    /* Create the file */
+    bool success = filesys_create(filename, initial_size);
+    return success;
 }
 
 void syscall_handler(struct intr_frame *f) {
@@ -165,10 +391,8 @@ void syscall_handler(struct intr_frame *f) {
         case SYS_EXIT:
             {
                 /* In exit(status), status is passed to rdi */
-                thread_current()->exit_status = (int) f->R.rdi;
-                // printf("Process %s exiting with status %d\n", thread_current()->name, status);
-				// printf("%s: exit(%d)\n", thread_current()->name, status);
-                thread_exit();
+                int status = (int) f->R.rdi;
+                sys_exit(status);
             }
             break;
 
@@ -182,6 +406,32 @@ void syscall_handler(struct intr_frame *f) {
 
                 /* Set return value */
                 f->R.rax = bytes_written;
+            }
+            break;
+
+        case SYS_OPEN:
+            {
+                /* sys_open(const char *file) */
+                const char *file = (const char *) f->R.rdi;
+                int fd = sys_open(file);
+                f->R.rax = fd;
+            }
+            break;
+
+        case SYS_CLOSE:
+            {
+                int fd = (int) f->R.rdi;
+                int result = sys_close(fd);
+                f->R.rax = result;
+            }
+            break;
+
+        case SYS_CREATE:
+            {
+                const char *file = (const char *) f->R.rdi;
+                unsigned initial_size = (unsigned) f->R.rsi;
+                bool success = sys_create(file, initial_size);
+                f->R.rax = success;
             }
             break;
 

@@ -176,7 +176,7 @@ page_fault (struct intr_frame *f) {
         thread_exit ();
     }
     else {
-        PANIC ("Page fault in kernel");
+		PANIC("Page fault in kernel at %p", fault_addr);
     }
 	/* NOTE: The end where custom code is added */
 

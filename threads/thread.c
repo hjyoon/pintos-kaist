@@ -243,6 +243,11 @@ thread_create (const char *name, int priority,
     t->exit_status = 0;
 	/* NOTE: The end where custom code is added */
 
+	/* NOTE: The beginning where custom code is added */
+	list_init(&t->file_list);
+	lock_init(&t->file_list_lock);
+	/* NOTE: The end where custom code is added */
+
 	/* Add to run queue. */
 	thread_unblock (t);
 
