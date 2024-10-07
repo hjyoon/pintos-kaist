@@ -241,7 +241,7 @@ thread_create (const char *name, int priority,
 	thread_current()->child = t;
 	sema_init(&t->sema_exit, 0);
     t->exit_status = 0;
-	/* NOTE: The end where custom code is added */
+	/* NOTE: The beginning where custom code is added */
 
 	/* NOTE: The beginning where custom code is added */
 	list_init(&t->file_list);

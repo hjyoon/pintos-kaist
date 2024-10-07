@@ -12,6 +12,7 @@
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "devices/input.h"
+#include "userprog/process.h"
 /* NOTE: The end where custom code is added */
 
 #include "userprog/gdt.h"
@@ -493,6 +494,41 @@ bool sys_remove(const char *file) {
     return success;
 }
 
+/* Implement sys_exec function */
+int sys_exec(const char *cmd_line) {
+    if (cmd_line == NULL) {
+        sys_exit(-1);
+    }
+
+    if (!is_valid_user_pointer(cmd_line)) {
+        sys_exit(-1); // Invalid user pointer
+    }
+
+    /* Allocate a page to store the command line */
+    char *cmd_line_copy = palloc_get_page(0);
+    if (cmd_line_copy == NULL) {
+        sys_exit(-1); // Memory allocation failed
+    }
+
+    /* Copy the command line from user to kernel space */
+    if (!get_user_string(cmd_line, cmd_line_copy, PGSIZE)) {
+        palloc_free_page(cmd_line_copy);
+        sys_exit(-1); // Invalid user memory access or cmd_line too long
+    }
+
+    /* Call process_exec */
+    int success = process_exec(cmd_line_copy);
+
+    /* If process_exec returns, it means there was an error */
+    palloc_free_page(cmd_line_copy);
+    return success;
+
+    /* If process_exec is successful, it does not return.
+       So, if we reach here, we should exit with -1. */
+    sys_exit(-1);
+    NOT_REACHED();
+}
+
 
 void syscall_handler(struct intr_frame *f) {
 	// TODO: Your implementation goes here.
@@ -597,6 +633,14 @@ void syscall_handler(struct intr_frame *f) {
                 const char *file = (const char *) f->R.rdi;
                 bool success = sys_remove(file);
                 f->R.rax = success;
+            }
+            break;
+
+        case SYS_EXEC:
+            {
+                const char *cmd_line = (const char *) f->R.rdi;
+                int pid = sys_exec(cmd_line);
+                f->R.rax = pid;
             }
             break;
 

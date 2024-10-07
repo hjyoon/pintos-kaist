@@ -92,8 +92,16 @@ read-stdout \
 read-bad-fd \
 "
 
-# userprog_tests에 create_tests와 read_tests 추가
-userprog_tests="$args_tests $bad_tests $write_tests $open_tests $create_tests $read_tests"
+exec_tests=" \
+exec-once \
+exec-arg \
+exec-boundary \
+exec-missing \
+exec-bad-ptr \
+exec-read \
+"
+
+userprog_tests="$args_tests $bad_tests $write_tests $open_tests $create_tests $read_tests $exec_tests"
 
 # 특정 테스트가 목록에 있는지 확인하는 함수
 contains() {
@@ -127,14 +135,28 @@ get_args() {
     esac
 }
 
-# 테스트별로 필요한 추가 옵션을 반환하는 함수
 get_pintos_options() {
     case "$1" in
         write-normal|write-bad-ptr|write-boundary|write-zero|open-normal|open-boundary|open-twice|read-normal|read-bad-ptr|read-boundary|read-zero)
             echo "-p ../../tests/userprog/sample.txt:sample.txt"
             ;;
-        write-stdin|write-bad-fd|open-missing|open-empty|open-null|open-bad-ptr|read-stdout|read-bad-fd)
+        exec-once)
+            echo "-p tests/userprog/child-simple:child-simple"
+            ;;
+        exec-arg)
+            echo "-p tests/userprog/child-args:child-args"
+            ;;
+        exec-boundary)
+            echo "-p tests/userprog/child-simple:child-simple"
+            ;;
+        exec-missing)
             echo ""
+            ;;
+        exec-bad-ptr)
+            echo ""
+            ;;
+        exec-read)
+            echo "-p ../../tests/userprog/sample.txt:sample.txt -p tests/userprog/child-read:child-read"
             ;;
         *)
             echo ""
@@ -169,6 +191,9 @@ elif [ "$1" = "create" ]; then
     test_prefix="userprog"
 elif [ "$1" = "read" ]; then
     selected_tests="$read_tests"
+    test_prefix="userprog"
+elif [ "$1" = "exec" ]; then
+    selected_tests="$exec_tests"
     test_prefix="userprog"
 elif [ -n "$1" ]; then
     # 입력 인자를 테스트 이름으로 취급
@@ -213,10 +238,16 @@ for test in $selected_tests; do
             echo "Running test $count of $total (CREATE): $test"
         elif contains "$read_tests" "$test"; then
             echo "Running test $count of $total (READ): $test"
+        elif contains "$exec_tests" "$test"; then
+            echo "Running test $count of $total (EXEC): $test"
         else
             echo "Running test $count of $total (USERPROG): $test"
         fi
-        pintos -v -k -T 60 -m 20 --fs-disk=10 -p "tests/userprog/$test:$test" $pintos_options -- -q -f run "$test $args" < /dev/null 2> "tests/$test_prefix/$test.errors" > "tests/$test_prefix/$test.output"
+        if [ -z "$args" ]; then
+            pintos -v -k -T 60 -m 20 --fs-disk=10 -p "tests/userprog/$test:$test" $pintos_options -- -q -f run "$test" < /dev/null 2> "tests/$test_prefix/$test.errors" > "tests/$test_prefix/$test.output"
+        else
+            pintos -v -k -T 60 -m 20 --fs-disk=10 -p "tests/userprog/$test:$test" $pintos_options -- -q -f run "$test $args" < /dev/null 2> "tests/$test_prefix/$test.errors" > "tests/$test_prefix/$test.output"
+        fi
     else
         echo "Running test $count of $total: $test"
         pintos -v -k -T 60 -m 20 -- -q run "$test" < /dev/null 2> "tests/$test_prefix/$test.errors" > "tests/$test_prefix/$test.output"
