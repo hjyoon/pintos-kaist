@@ -22,49 +22,49 @@
 #include "vm/vm.h"
 #endif
 
-/* Includes the program name.  Reject larger argument vectors. */
+/* NOTE: The beginning where custom code is added */
+/* Maximum number of arguments */
 #define MAX_ARGC 128
+/* Define a structure to hold the parent's thread and intr_frame */
+struct fork_aux {
+    struct thread *parent_thread;
+    struct intr_frame *parent_if;
+};
+/* NOTE: The end where custom code is added */
 
-/* Build the initial user stack only after checking its complete size. */
-static bool
-setup_arguments (int argc, char **argv, void **rsp) {
-	if (argc <= 0 || argc > MAX_ARGC)
-		return false;
+static bool setup_arguments(int argc, char **argv, void **rsp) {
+    uintptr_t rsp_val = (uintptr_t) *rsp;
 
-	size_t string_bytes = 0;
-	for (int i = 0; i < argc; i++) {
-		size_t length = strlen (argv[i]) + 1;
-		if (length > PGSIZE - string_bytes)
-			return false;
-		string_bytes += length;
-	}
-	size_t stack_bytes = ROUND_UP (string_bytes, sizeof (void *)) +
-	                     (argc + 2) * sizeof (void *);
-	if (stack_bytes > PGSIZE)
-		return false;
+    /* Put each argument string on the stack (in reverse order) */
+    char *argv_addresses[argc];  // An array to store the address of each argument
+    for (int i = argc - 1; i >= 0; i--) {
+        int len = strlen(argv[i]) + 1;  // Length of argument string (including null character)
+        rsp_val -= len;
+        memcpy((void *)rsp_val, argv[i], len);  // Copy string to stack
+        argv_addresses[i] = (char *)rsp_val;  // Store string address
+    }
 
-	uintptr_t sp = (uintptr_t) *rsp;
-	for (int i = argc - 1; i >= 0; i--) {
-		size_t length = strlen (argv[i]) + 1;
-		sp -= length;
-		memcpy ((void *) sp, argv[i], length);
-		/* Reuse the kernel argument vector for the user addresses. */
-		argv[i] = (char *) sp;
-	}
+    /* 8-byte alignment for word alignment */
+    rsp_val &= ~0x7;
 
-	uintptr_t aligned_sp = sp & ~(uintptr_t) (sizeof (void *) - 1);
-	memset ((void *) aligned_sp, 0, sp - aligned_sp);
-	sp = aligned_sp;
-	sp -= sizeof (char *);
-	*(char **) sp = NULL;
-	for (int i = argc - 1; i >= 0; i--) {
-		sp -= sizeof (char *);
-		*(char **) sp = argv[i];
-	}
-	sp -= sizeof (void *);
-	*(uintptr_t *) sp = 0;
-	*rsp = (void *) sp;
-	return true;
+	/* Add NULL pointer */
+	rsp_val -= sizeof(char *);
+	*(uintptr_t *)rsp_val = 0;
+
+    /* Place the argv pointer array on the stack */
+    for (int i = argc-1; i >= 0; i--) {
+        rsp_val -= sizeof(char *);
+		*(uintptr_t *)rsp_val = (uintptr_t)argv_addresses[i]; // Add each argument address
+    }
+
+	/* Store fake return address on stack */
+    rsp_val -= sizeof(void *);
+    *(uintptr_t *)rsp_val = 0;  // fake return address (usually 0)
+
+    /* Stack pointer update */
+    *rsp = (void *)rsp_val;
+
+    return true;
 }
 
 static void process_cleanup (void);
@@ -88,17 +88,37 @@ process_create_initd (const char *file_name) {
 	char *fn_copy;
 	tid_t tid;
 
+	/* NOTE: The beginning where custom code is added */
+	char exec_name[NAME_MAX + 1];  // Buffer to store the executable name
+	/* NOTE: The end where custom code is added */
+
 	/* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
-	if (strnlen (file_name, PGSIZE) == PGSIZE)
-		return TID_ERROR;
 	fn_copy = palloc_get_page (0);
 	if (fn_copy == NULL)
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
 
+	/* NOTE: The beginning where custom code is added */
+	/* Extract the executable name (first word) from FILE_NAME */
+    const char *space = strchr(file_name, ' ');  // Find the first space
+    if (space != NULL) {
+        size_t len = space - file_name;  // Calculate length of the executable name
+        if (len > NAME_MAX)
+            len = NAME_MAX;  // Truncate if it exceeds the maximum allowed length
+        memcpy(exec_name, file_name, len);  // Copy the executable name
+        exec_name[len] = '\0';  // Null-terminate the string
+    }
+    else {
+        // If there's no space, the entire file_name is the executable name
+        strlcpy(exec_name, file_name, sizeof exec_name);
+    }
+
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
+	tid = thread_create (exec_name, PRI_DEFAULT, initd, fn_copy);
+	/* NOTE: The end where custom code is added */
+	
+	// tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
 	return tid;
@@ -114,7 +134,7 @@ initd (void *f_name) {
 	process_init ();
 
 	if (process_exec (f_name) < 0)
-		thread_exit ();
+		PANIC("Fail to launch initd\n");
 	NOT_REACHED ();
 }
 
@@ -123,8 +143,14 @@ initd (void *f_name) {
 tid_t
 process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	/* Clone current thread to new thread.*/
-	return thread_create (name,
-			PRI_DEFAULT, __do_fork, thread_current ());
+	struct fork_aux *aux = malloc(sizeof(struct fork_aux));
+    if (aux == NULL)
+        return TID_ERROR;
+
+    aux->parent_thread = thread_current();
+    aux->parent_if = if_;
+
+    return thread_create(name, PRI_DEFAULT, __do_fork, aux);
 }
 
 #ifndef VM
@@ -163,99 +189,167 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
  * Hint) parent->tf does not hold the userland context of the process.
  *       That is, you are required to pass second argument of process_fork to
  *       this function. */
+// static void
+// __do_fork (void *aux) {
+// 	struct intr_frame if_;
+// 	struct thread *parent = (struct thread *) aux;
+// 	struct thread *current = thread_current ();
+// 	/* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
+// 	struct intr_frame *parent_if;
+// 	bool succ = true;
+
+// 	/* 1. Read the cpu context to local stack. */
+// 	memcpy (&if_, parent_if, sizeof (struct intr_frame));
+
+// 	/* 2. Duplicate PT */
+// 	current->pml4 = pml4_create();
+// 	if (current->pml4 == NULL)
+// 		goto error;
+
+// 	process_activate (current);
+// #ifdef VM
+// 	supplemental_page_table_init (&current->spt);
+// 	if (!supplemental_page_table_copy (&current->spt, &parent->spt))
+// 		goto error;
+// #else
+// 	if (!pml4_for_each (parent->pml4, duplicate_pte, parent))
+// 		goto error;
+// #endif
+
+// 	/* TODO: Your code goes here.
+// 	 * TODO: Hint) To duplicate the file object, use `file_duplicate`
+// 	 * TODO:       in include/filesys/file.h. Note that parent should not return
+// 	 * TODO:       from the fork() until this function successfully duplicates
+// 	 * TODO:       the resources of parent.*/
+
+// 	process_init ();
+
+// 	/* Finally, switch to the newly created process. */
+// 	if (succ)
+// 		do_iret (&if_);
+// error:
+// 	thread_exit ();
+// }
+
 static void
-__do_fork (void *aux) {
-	struct intr_frame if_;
-	struct thread *parent = (struct thread *) aux;
-	struct thread *current = thread_current ();
-	/* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
-	struct intr_frame *parent_if;
-	bool succ = true;
+__do_fork(void *aux) {
+    struct fork_aux *faux = (struct fork_aux *)aux;
+    struct thread *parent = faux->parent_thread;
+    struct intr_frame *parent_if = faux->parent_if;
+    struct intr_frame if_;
+    struct thread *current = thread_current();
+    bool succ = true;
 
-	/* 1. Read the cpu context to local stack. */
-	memcpy (&if_, parent_if, sizeof (struct intr_frame));
+    /* 1. Copy the parent's intr_frame to the child's intr_frame */
+    memcpy(&if_, parent_if, sizeof(struct intr_frame));
 
-	/* 2. Duplicate PT */
-	current->pml4 = pml4_create();
-	if (current->pml4 == NULL)
-		goto error;
+    /* 2. Duplicate the parent's page table */
+    current->pml4 = pml4_create();
+    if (current->pml4 == NULL)
+        goto error;
 
-	process_activate (current);
-#ifdef VM
-	supplemental_page_table_init (&current->spt);
-	if (!supplemental_page_table_copy (&current->spt, &parent->spt))
-		goto error;
-#else
-	if (!pml4_for_each (parent->pml4, duplicate_pte, parent))
-		goto error;
-#endif
+    process_activate(current);
 
-	/* TODO: Your code goes here.
-	 * TODO: Hint) To duplicate the file object, use `file_duplicate`
-	 * TODO:       in include/filesys/file.h. Note that parent should not return
-	 * TODO:       from the fork() until this function successfully duplicates
-	 * TODO:       the resources of parent.*/
+    #ifdef VM
+    supplemental_page_table_init(&current->spt);
+    if (!supplemental_page_table_copy(&current->spt, &parent->spt))
+        goto error;
+    #else
+    if (!pml4_for_each(parent->pml4, duplicate_pte, parent))
+        goto error;
+    #endif
 
-	process_init ();
+    /* 3. Copy the parent's thread name (argv[0]) to the child */
+    strlcpy(current->name, parent->name, sizeof(current->name));
 
-	/* Finally, switch to the newly created process. */
-	if (succ)
-		do_iret (&if_);
+    /* 4. Duplicate file descriptors and other resources as needed */
+    // Implement file descriptor duplication here if required
+
+    process_init();
+
+    if (succ)
+        do_iret(&if_);
+
 error:
-	thread_exit ();
+    thread_exit();
 }
 
-/* Switch to the executable described by the owned command-line page.
-   Consumes F_NAME on success and failure.  Returns -1 on failure. */
+/* Switch the current execution context to the f_name.
+ * Returns -1 on fail. */
 int
 process_exec (void *f_name) {
 	char *file_name = f_name;
-	char *argv[MAX_ARGC];
-	char *save_ptr;
-	int argc = 0;
+	bool success;
 
-	if (file_name == NULL)
-		return -1;
-	if (strnlen (file_name, PGSIZE) == PGSIZE)
-		goto error;
+	/* NOTE: The beginning where custom code is added */
+    /* Separate arguments */
+    char *fn_copy = palloc_get_page(0);
+    if (fn_copy == NULL)
+        return -1;
+    strlcpy(fn_copy, file_name, PGSIZE);
 
-	/* Tokenize the owned page directly, avoiding a second allocation. */
-	for (char *token = strtok_r (file_name, " ", &save_ptr);
-	     token != NULL; token = strtok_r (NULL, " ", &save_ptr)) {
-		if (argc == MAX_ARGC)
-			goto error;
-		argv[argc++] = token;
-	}
-	if (argc == 0)
-		goto error;
+    /* Separate the arguments with spaces and store it in the argv array */
+    char *save_ptr;
+    int argc = 0;
+    char *argv[MAX_ARGC];  // Limit the maximum number of arguments
+    char *token = strtok_r(fn_copy, " ", &save_ptr);
+    while (token != NULL && argc < MAX_ARGC) {
+        argv[argc++] = token;
+        token = strtok_r(NULL, " ", &save_ptr);
+    }
+	/* NOTE: The end where custom code is added */
 
-	/* Use a separate frame because scheduling overwrites thread.tf. */
+	/* We cannot use the intr_frame in the thread structure.
+	 * This is because when current thread rescheduled,
+	 * it stores the execution information to the member. */
 	struct intr_frame _if;
-	memset (&_if, 0, sizeof _if);
+
+	/* NOTE: The beginning where custom code is added */
+	memset(&_if, 0, sizeof _if);  // Initialize intr_frame to 0
+	/* NOTE: The end where custom code is added */
+
 	_if.ds = _if.es = _if.ss = SEL_UDSEG;
 	_if.cs = SEL_UCSEG;
 	_if.eflags = FLAG_IF | FLAG_MBS;
 
-	process_cleanup ();
-	strlcpy (thread_current ()->name, argv[0], sizeof thread_current ()->name);
-	bool loaded = load (argv[0], &_if);
-	/* Avoid passing the address of a packed integer field as void **. */
-	void *stack_pointer = (void *) _if.rsp;
-	if (!loaded || !setup_arguments (argc, argv, &stack_pointer)) {
-		process_cleanup ();
-		goto error;
-	}
-	_if.rsp = (uintptr_t) stack_pointer;
+	/* NOTE: The beginning where custom code is added */
+	// strlcpy(thread_current()->name, argv[0], sizeof(thread_current()->name));
+	/* NOTE: The end where custom code is added */
 
-	_if.R.rdi = argc;
-	_if.R.rsi = (uintptr_t) _if.rsp + sizeof (void *);
-	palloc_free_page (file_name);
+	/* We first kill the current context */
+	process_cleanup ();
+
+	/* Set program name to current thread name */
+    // strlcpy(thread_current()->name, argv[0], sizeof(thread_current()->name));
+
+	/* NOTE: The beginning where custom code is added */
+	/* And then load the binary */
+	success = load (argv[0], &_if);
+	// success = load (file_name, &_if);
+
+	/* If load failed, quit. */
+    if (!success) {
+        palloc_free_page(fn_copy);
+        return -1;
+    }
+
+	/* Place arguments on the stack */
+    if (!setup_arguments(argc, argv, &_if.rsp)) {
+        palloc_free_page(fn_copy);
+        return -1;
+    }
+
+	/* Set up argument registers (start address of argc in rdi, argv in rsi) */
+    _if.R.rdi = argc;
+    _if.R.rsi = _if.rsp + sizeof(void *);;  // Address of argv array
+
+    /* Free copy of file name */
+	palloc_free_page(fn_copy);
+	/* NOTE: The end where custom code is added */
+
+	/* Start switched process. */
 	do_iret (&_if);
 	NOT_REACHED ();
-
-error:
-	palloc_free_page (file_name);
-	return -1;
 }
 
 
@@ -298,9 +392,21 @@ process_exit(void) {
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
 
-    /* Print once, before cleanup removes the user page table. */
-    if (curr->pml4 != NULL)
-        printf ("%s: exit(%d)\n", curr->name, curr->exit_status);
+	/* NOTE: The beginning where custom code is added */
+	/* If there is no page table, it is considered a kernel thread. */
+	if (!curr->pml4 == NULL) {
+		printf("%s: exit(%d)\n", curr->name, curr->exit_status);
+	}
+	/* NOTE: The end where custom code is added */
+
+	/* NOTE: The beginning where custom code is added */
+	/* Close executable file to allow writing */
+    // if (curr->executable_file != NULL) {
+    //     file_close(curr->executable_file);
+    //     curr->executable_file = NULL;
+    // }
+	/* NOTE: The end where custom code is added */
+
     process_cleanup();
 
 	/* NOTE: The beginning where custom code is added */
