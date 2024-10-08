@@ -66,7 +66,9 @@ void sys_halt(void) {
 }
 
 void sys_exit(int status) {
-    thread_current()->exit_status = status;
+    struct thread *curr = thread_current();
+    curr->exit_status = status;
+    // printf("%s: exit(%d)\n", curr->name, curr->exit_status);
     thread_exit();
 }
 
@@ -77,6 +79,8 @@ const char* syscall_name(int syscall_number) {
             return "halt";
         case SYS_EXIT:
             return "exit";
+        case SYS_FORK:
+            return "fork";
         case SYS_EXEC:
             return "exec";
         case SYS_WAIT:
@@ -529,6 +533,34 @@ int sys_exec(const char *cmd_line) {
     NOT_REACHED();
 }
 
+int sys_wait(int pid) {
+    return process_wait(pid);
+}
+
+/* Implement sys_fork */
+int sys_fork(const char *thread_name, struct intr_frame *f) {
+    if (thread_name == NULL) {
+        sys_exit(-1);
+    }
+
+    if (!is_valid_user_pointer(thread_name)) {
+        sys_exit(-1); // Invalid user pointer
+    }
+
+    /* Copy the thread name into kernel memory */
+    char kernel_thread_name[NAME_MAX + 1];
+    if (!get_user_string(thread_name, kernel_thread_name, sizeof(kernel_thread_name))) {
+        sys_exit(-1); // Invalid user memory access or name too long
+    }
+
+    /* Call process_fork */
+    int pid = process_fork(kernel_thread_name, f);
+    if (pid == TID_ERROR) {
+        return -1;
+    }
+    return pid;
+}
+
 
 void syscall_handler(struct intr_frame *f) {
 	// TODO: Your implementation goes here.
@@ -640,6 +672,22 @@ void syscall_handler(struct intr_frame *f) {
             {
                 const char *cmd_line = (const char *) f->R.rdi;
                 int pid = sys_exec(cmd_line);
+                f->R.rax = pid;
+            }
+            break;
+
+        case SYS_WAIT:
+            {
+                int pid = (int) f->R.rdi;
+                int status = sys_wait(pid);
+                f->R.rax = status;
+            }
+            break;
+
+        case SYS_FORK:
+            {
+                const char *thread_name = (const char *) f->R.rdi;
+                int pid = sys_fork(thread_name, f);
                 f->R.rax = pid;
             }
             break;

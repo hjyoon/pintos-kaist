@@ -101,7 +101,16 @@ exec-bad-ptr \
 exec-read \
 "
 
-userprog_tests="$args_tests $bad_tests $write_tests $open_tests $create_tests $read_tests $exec_tests"
+fork_tests=" \
+fork-once \
+fork-multiple \
+fork-recursive \
+fork-read \
+fork-close \
+fork-boundary \
+"
+
+userprog_tests="$args_tests $bad_tests $write_tests $open_tests $create_tests $read_tests $exec_tests $fork_tests"
 
 # 특정 테스트가 목록에 있는지 확인하는 함수
 contains() {
@@ -137,7 +146,7 @@ get_args() {
 
 get_pintos_options() {
     case "$1" in
-        write-normal|write-bad-ptr|write-boundary|write-zero|open-normal|open-boundary|open-twice|read-normal|read-bad-ptr|read-boundary|read-zero)
+        write-normal|write-bad-ptr|write-boundary|write-zero|open-normal|open-boundary|open-twice|read-normal|read-bad-ptr|read-boundary|read-zero|fork-read|fork-close)
             echo "-p ../../tests/userprog/sample.txt:sample.txt"
             ;;
         exec-once)
@@ -195,6 +204,9 @@ elif [ "$1" = "read" ]; then
 elif [ "$1" = "exec" ]; then
     selected_tests="$exec_tests"
     test_prefix="userprog"
+elif [ "$1" = "fork" ]; then
+    selected_tests="$fork_tests"
+    test_prefix="userprog"
 elif [ -n "$1" ]; then
     # 입력 인자를 테스트 이름으로 취급
     selected_tests="$1"
@@ -207,7 +219,7 @@ elif [ -n "$1" ]; then
         test_prefix="threads"
     fi
 else
-    echo "Usage: $0 {alarm|priority|mlfqs|args|bad|write|open|create|read|test_name}"
+    echo "Usage: $0 {alarm|priority|mlfqs|args|bad|write|open|create|read|exec|fork|test_name}"
     exit 1
 fi
 
@@ -240,6 +252,8 @@ for test in $selected_tests; do
             echo "Running test $count of $total (READ): $test"
         elif contains "$exec_tests" "$test"; then
             echo "Running test $count of $total (EXEC): $test"
+        elif contains "$fork_tests" "$test"; then
+            echo "Running test $count of $total (FORK): $test"
         else
             echo "Running test $count of $total (USERPROG): $test"
         fi
