@@ -117,7 +117,7 @@ process_create_initd (const char *file_name) {
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create (exec_name, PRI_DEFAULT, initd, fn_copy);
 	/* NOTE: The end where custom code is added */
-	
+
 	// tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
@@ -156,32 +156,72 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 #ifndef VM
 /* Duplicate the parent's address space by passing this function to the
  * pml4_for_each. This is only for the project 2. */
+// static bool
+// duplicate_pte (uint64_t *pte, void *va, void *aux) {
+// 	struct thread *current = thread_current ();
+// 	struct thread *parent = (struct thread *) aux;
+// 	void *parent_page;
+// 	void *newpage;
+// 	bool writable;
+
+// 	/* 1. TODO: If the parent_page is kernel page, then return immediately. */
+
+// 	/* 2. Resolve VA from the parent's page map level 4. */
+// 	parent_page = pml4_get_page (parent->pml4, va);
+
+// 	/* 3. TODO: Allocate new PAL_USER page for the child and set result to
+// 	 *    TODO: NEWPAGE. */
+
+// 	/* 4. TODO: Duplicate parent's page to the new page and
+// 	 *    TODO: check whether parent's page is writable or not (set WRITABLE
+// 	 *    TODO: according to the result). */
+
+// 	/* 5. Add new page to child's page table at address VA with WRITABLE
+// 	 *    permission. */
+// 	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
+// 		/* 6. TODO: if fail to insert page, do error handling. */
+// 	}
+// 	return true;
+// }
 static bool
 duplicate_pte (uint64_t *pte, void *va, void *aux) {
-	struct thread *current = thread_current ();
-	struct thread *parent = (struct thread *) aux;
-	void *parent_page;
-	void *newpage;
-	bool writable;
+    struct thread *current = thread_current ();
+    struct thread *parent = (struct thread *) aux;
+    void *parent_page;
+    void *newpage;
+    bool writable;
 
-	/* 1. TODO: If the parent_page is kernel page, then return immediately. */
+    /* 1. Check if the virtual address is a user address. Skip kernel pages. */
+    if (!is_user_vaddr(va)) {
+        return true;
+    }
 
-	/* 2. Resolve VA from the parent's page map level 4. */
-	parent_page = pml4_get_page (parent->pml4, va);
+    /* 2. Get the page from the parent's page table. */
+    parent_page = pml4_get_page (parent->pml4, va);
+    if (parent_page == NULL) {
+        // Should not happen; handle as needed
+        return false;
+    }
 
-	/* 3. TODO: Allocate new PAL_USER page for the child and set result to
-	 *    TODO: NEWPAGE. */
+    /* 3. Allocate a new page for the child process. */
+    newpage = palloc_get_page(PAL_USER);
+    if (newpage == NULL) {
+        return false;
+    }
 
-	/* 4. TODO: Duplicate parent's page to the new page and
-	 *    TODO: check whether parent's page is writable or not (set WRITABLE
-	 *    TODO: according to the result). */
+    /* 4. Copy the content from the parent page to the new page. */
+    memcpy(newpage, parent_page, PGSIZE);
 
-	/* 5. Add new page to child's page table at address VA with WRITABLE
-	 *    permission. */
-	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
-		/* 6. TODO: if fail to insert page, do error handling. */
-	}
-	return true;
+    /* 5. Determine if the page is writable. */
+    writable = is_writable(pte);
+
+    /* 6. Map the new page into the child's page table. */
+    if (!pml4_set_page (current->pml4, va, newpage, writable)) {
+        palloc_free_page(newpage);
+        return false;
+    }
+
+    return true;
 }
 #endif
 
@@ -238,7 +278,6 @@ __do_fork(void *aux) {
     struct intr_frame *parent_if = faux->parent_if;
     struct intr_frame if_;
     struct thread *current = thread_current();
-    bool succ = true;
 
     /* 1. Copy the parent's intr_frame to the child's intr_frame */
     memcpy(&if_, parent_if, sizeof(struct intr_frame));
@@ -265,10 +304,11 @@ __do_fork(void *aux) {
     /* 4. Duplicate file descriptors and other resources as needed */
     // Implement file descriptor duplication here if required
 
-    process_init();
+	free(aux);
 
-    if (succ)
-        do_iret(&if_);
+    // process_init();
+
+    do_iret(&if_);
 
 error:
     thread_exit();
