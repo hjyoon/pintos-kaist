@@ -57,6 +57,10 @@ struct page {
 		struct page_cache page_cache;
 #endif
 	};
+
+	/* NOTE: The beginning where custom code is added */
+	struct hash_elem hash_elem; /* 해시 테이블 요소 */
+	/* NOTE: The end where custom code is added */
 };
 
 /* The representation of "frame" */
@@ -85,6 +89,9 @@ struct page_operations {
  * We don't want to force you to obey any specific design for this struct.
  * All designs up to you for this. */
 struct supplemental_page_table {
+	/* NOTE: The beginning where custom code is added */
+	struct hash hash;
+	/* NOTE: The end where custom code is added */
 };
 
 #include "threads/thread.h"
