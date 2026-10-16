@@ -1,0 +1,77 @@
+[
+  {
+    "source": "appendix/debugging_tools.html",
+    "original_href": "appendix/debugging_tools.md#tripple-faults",
+    "translated_href": "debugging_tools.md#triple-faults"
+  },
+  {
+    "source": "appendix/debugging_tools.html",
+    "original_href": "#Backtraces",
+    "translated_href": "debugging_tools.md#backtraces"
+  },
+  {
+    "source": "appendix/synchronization.html",
+    "original_href": "#Disabling%20Interrupts",
+    "translated_href": "synchronization.md#disabling-interrupts"
+  },
+  {
+    "source": "appendix/synchronization.html",
+    "original_href": "#Semaphores",
+    "translated_href": "synchronization.md#semaphores"
+  },
+  {
+    "source": "appendix/threads.html",
+    "original_href": "memoryAllocation.md",
+    "translated_href": "memory_allocation.md"
+  },
+  {
+    "source": "appendix/threads.html",
+    "original_href": "../project1/priority_scheduling",
+    "translated_href": "../project1/priority_scheduling.md"
+  },
+  {
+    "source": "appendix/virtual_address.html",
+    "original_href": "../project2/introduction",
+    "translated_href": "../project2/introduction.md"
+  },
+  {
+    "source": "introduction/getting_started.html",
+    "original_href": "../appendix/debugging_tools.html#GDB",
+    "translated_href": "../appendix/debugging_tools.md#gdb"
+  },
+  {
+    "source": "introduction/getting_started.html",
+    "original_href": "../appendix/debuuging_tools.md#Backtraces",
+    "translated_href": "../appendix/debugging_tools.md#backtraces"
+  },
+  {
+    "source": "project1/FAQ.html",
+    "original_href": "../introduction/grading#Testing",
+    "translated_href": "../introduction/grading.md#testing"
+  },
+  {
+    "source": "project1/advanced_scheduler.html",
+    "original_href": "#4.4BSD%20Scheduler",
+    "translated_href": "advanced_scheduler.md#44bsd-scheduler"
+  },
+  {
+    "source": "project1/advanced_scheduler.html",
+    "original_href": "#Calculating%20Priority",
+    "translated_href": "advanced_scheduler.md#calculating-priority"
+  },
+  {
+    "source": "project1/introduction.html",
+    "original_href": "../introduction",
+    "translated_href": "../introduction/getting_started.md"
+  },
+  {
+    "source": "project1/introduction.html",
+    "original_href": "../appendix/memory_allocation.html#Page%20Allocator",
+    "translated_href": "../appendix/memory_allocation.md#page-allocator"
+  },
+  {
+    "source": "project1/introduction.html",
+    "original_href": "../appendix/memory_allocation.html#Block%20Allocator",
+    "translated_href": "../appendix/memory_allocation.md#block-allocator"
+  }
+]

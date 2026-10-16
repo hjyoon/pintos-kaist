@@ -1,0 +1,338 @@
+{
+  "checked_on": "2026-10-17",
+  "document_count": 41,
+  "protected_code_items": 1488,
+  "all_code_preserved": true,
+  "all_heading_counts_preserved": true,
+  "code_whitespace_normalization": "Block code: CRLF to LF, tabs to 4 spaces, trim line-end whitespace and outer newlines. Inline code: collapse HTML-rendered whitespace.",
+  "documents": [
+    {
+      "document": "appendix/debugging_tools.md",
+      "protected_code_items": 55,
+      "code_preserved": true,
+      "source_headings": 11,
+      "translated_headings": 11,
+      "headings_preserved": true
+    },
+    {
+      "document": "appendix/development_tools.md",
+      "protected_code_items": 27,
+      "code_preserved": true,
+      "source_headings": 3,
+      "translated_headings": 3,
+      "headings_preserved": true
+    },
+    {
+      "document": "appendix/hash_table.md",
+      "protected_code_items": 97,
+      "code_preserved": true,
+      "source_headings": 8,
+      "translated_headings": 8,
+      "headings_preserved": true
+    },
+    {
+      "document": "appendix/memory_allocation.md",
+      "protected_code_items": 18,
+      "code_preserved": true,
+      "source_headings": 3,
+      "translated_headings": 3,
+      "headings_preserved": true
+    },
+    {
+      "document": "appendix/page_table.md",
+      "protected_code_items": 15,
+      "code_preserved": true,
+      "source_headings": 4,
+      "translated_headings": 4,
+      "headings_preserved": true
+    },
+    {
+      "document": "appendix/synchronization.md",
+      "protected_code_items": 63,
+      "code_preserved": true,
+      "source_headings": 7,
+      "translated_headings": 7,
+      "headings_preserved": true
+    },
+    {
+      "document": "appendix/threads.md",
+      "protected_code_items": 75,
+      "code_preserved": true,
+      "source_headings": 3,
+      "translated_headings": 3,
+      "headings_preserved": true
+    },
+    {
+      "document": "appendix/virtual_address.md",
+      "protected_code_items": 28,
+      "code_preserved": true,
+      "source_headings": 1,
+      "translated_headings": 1,
+      "headings_preserved": true
+    },
+    {
+      "document": "index.md",
+      "protected_code_items": 0,
+      "code_preserved": true,
+      "source_headings": 1,
+      "translated_headings": 1,
+      "headings_preserved": true
+    },
+    {
+      "document": "introduction/getting_started.md",
+      "protected_code_items": 44,
+      "code_preserved": true,
+      "source_headings": 4,
+      "translated_headings": 4,
+      "headings_preserved": true
+    },
+    {
+      "document": "introduction/grading.md",
+      "protected_code_items": 23,
+      "code_preserved": true,
+      "source_headings": 3,
+      "translated_headings": 3,
+      "headings_preserved": true
+    },
+    {
+      "document": "introduction/legal_and_ethical_issues.md",
+      "protected_code_items": 1,
+      "code_preserved": true,
+      "source_headings": 1,
+      "translated_headings": 1,
+      "headings_preserved": true
+    },
+    {
+      "document": "project1/FAQ.md",
+      "protected_code_items": 46,
+      "code_preserved": true,
+      "source_headings": 22,
+      "translated_headings": 22,
+      "headings_preserved": true
+    },
+    {
+      "document": "project1/advanced_scheduler.md",
+      "protected_code_items": 152,
+      "code_preserved": true,
+      "source_headings": 8,
+      "translated_headings": 8,
+      "headings_preserved": true
+    },
+    {
+      "document": "project1/alarm_clock.md",
+      "protected_code_items": 14,
+      "code_preserved": true,
+      "source_headings": 1,
+      "translated_headings": 1,
+      "headings_preserved": true
+    },
+    {
+      "document": "project1/introduction.md",
+      "protected_code_items": 118,
+      "code_preserved": true,
+      "source_headings": 9,
+      "translated_headings": 9,
+      "headings_preserved": true
+    },
+    {
+      "document": "project1/priority_scheduling.md",
+      "protected_code_items": 9,
+      "code_preserved": true,
+      "source_headings": 1,
+      "translated_headings": 1,
+      "headings_preserved": true
+    },
+    {
+      "document": "project2/FAQ.md",
+      "protected_code_items": 24,
+      "code_preserved": true,
+      "source_headings": 17,
+      "translated_headings": 17,
+      "headings_preserved": true
+    },
+    {
+      "document": "project2/argument_passing.md",
+      "protected_code_items": 44,
+      "code_preserved": true,
+      "source_headings": 4,
+      "translated_headings": 4,
+      "headings_preserved": true
+    },
+    {
+      "document": "project2/deny_write.md",
+      "protected_code_items": 2,
+      "code_preserved": true,
+      "source_headings": 1,
+      "translated_headings": 1,
+      "headings_preserved": true
+    },
+    {
+      "document": "project2/dup.md",
+      "protected_code_items": 23,
+      "code_preserved": true,
+      "source_headings": 1,
+      "translated_headings": 1,
+      "headings_preserved": true
+    },
+    {
+      "document": "project2/introduction.md",
+      "protected_code_items": 82,
+      "code_preserved": true,
+      "source_headings": 8,
+      "translated_headings": 8,
+      "headings_preserved": true
+    },
+    {
+      "document": "project2/process_termination.md",
+      "protected_code_items": 3,
+      "code_preserved": true,
+      "source_headings": 1,
+      "translated_headings": 1,
+      "headings_preserved": true
+    },
+    {
+      "document": "project2/system_call.md",
+      "protected_code_items": 112,
+      "code_preserved": true,
+      "source_headings": 3,
+      "translated_headings": 3,
+      "headings_preserved": true
+    },
+    {
+      "document": "project2/user_memory.md",
+      "protected_code_items": 0,
+      "code_preserved": true,
+      "source_headings": 1,
+      "translated_headings": 1,
+      "headings_preserved": true
+    },
+    {
+      "document": "project3/FAQ.md",
+      "protected_code_items": 6,
+      "code_preserved": true,
+      "source_headings": 5,
+      "translated_headings": 5,
+      "headings_preserved": true
+    },
+    {
+      "document": "project3/accessing_user_memory.md",
+      "protected_code_items": 1,
+      "code_preserved": true,
+      "source_headings": 1,
+      "translated_headings": 1,
+      "headings_preserved": true
+    },
+    {
+      "document": "project3/anon.md",
+      "protected_code_items": 81,
+      "code_preserved": true,
+      "source_headings": 5,
+      "translated_headings": 5,
+      "headings_preserved": true
+    },
+    {
+      "document": "project3/cow.md",
+      "protected_code_items": 2,
+      "code_preserved": true,
+      "source_headings": 1,
+      "translated_headings": 1,
+      "headings_preserved": true
+    },
+    {
+      "document": "project3/introduction.md",
+      "protected_code_items": 55,
+      "code_preserved": true,
+      "source_headings": 17,
+      "translated_headings": 17,
+      "headings_preserved": true
+    },
+    {
+      "document": "project3/memory_mapped_files.md",
+      "protected_code_items": 33,
+      "code_preserved": true,
+      "source_headings": 2,
+      "translated_headings": 2,
+      "headings_preserved": true
+    },
+    {
+      "document": "project3/paging.md",
+      "protected_code_items": 12,
+      "code_preserved": true,
+      "source_headings": 1,
+      "translated_headings": 1,
+      "headings_preserved": true
+    },
+    {
+      "document": "project3/stack_growth.md",
+      "protected_code_items": 22,
+      "code_preserved": true,
+      "source_headings": 1,
+      "translated_headings": 1,
+      "headings_preserved": true
+    },
+    {
+      "document": "project3/swapping.md",
+      "protected_code_items": 22,
+      "code_preserved": true,
+      "source_headings": 3,
+      "translated_headings": 3,
+      "headings_preserved": true
+    },
+    {
+      "document": "project3/vm_management.md",
+      "protected_code_items": 66,
+      "code_preserved": true,
+      "source_headings": 6,
+      "translated_headings": 6,
+      "headings_preserved": true
+    },
+    {
+      "document": "project4/FAQ.md",
+      "protected_code_items": 18,
+      "code_preserved": true,
+      "source_headings": 10,
+      "translated_headings": 10,
+      "headings_preserved": true
+    },
+    {
+      "document": "project4/buffer_cache.md",
+      "protected_code_items": 6,
+      "code_preserved": true,
+      "source_headings": 2,
+      "translated_headings": 2,
+      "headings_preserved": true
+    },
+    {
+      "document": "project4/indexed_and_extensible_files.md",
+      "protected_code_items": 36,
+      "code_preserved": true,
+      "source_headings": 3,
+      "translated_headings": 3,
+      "headings_preserved": true
+    },
+    {
+      "document": "project4/introduction.md",
+      "protected_code_items": 25,
+      "code_preserved": true,
+      "source_headings": 4,
+      "translated_headings": 4,
+      "headings_preserved": true
+    },
+    {
+      "document": "project4/subdirectories.md",
+      "protected_code_items": 25,
+      "code_preserved": true,
+      "source_headings": 2,
+      "translated_headings": 2,
+      "headings_preserved": true
+    },
+    {
+      "document": "project4/synchronization.md",
+      "protected_code_items": 3,
+      "code_preserved": true,
+      "source_headings": 1,
+      "translated_headings": 1,
+      "headings_preserved": true
+    }
+  ]
+}

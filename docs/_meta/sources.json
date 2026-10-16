@@ -1,0 +1,571 @@
+{
+  "source_root": "https://casys-kaist.github.io/pintos-kaist/",
+  "collected_on": "2026-10-17",
+  "upstream_gh_pages_commit": "0064459f71e8c0a4f2e7f83ae5a3fa6b4be06e19",
+  "upstream_gh_pages_tree": "0064459f71e8c0a4f2e7f83ae5a3fa6b4be06e19",
+  "document_count": 41,
+  "pages": [
+    {
+      "source_path": "appendix/debugging_tools.html",
+      "translation_path": "appendix/debugging_tools.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/appendix/debugging_tools.html",
+      "source_sha256": "020764dc18dea49ad6e5e5dcc3c3fe6a474730053e07762ef6fc7c23b0261b80",
+      "source_word_count": 1997,
+      "source_heading_ids": [
+        "debugging-tools",
+        "printf",
+        "assert",
+        "function-and-parameter-attributes",
+        "backtraces",
+        "example",
+        "gdb",
+        "using-gdb",
+        "faq",
+        "triple-faults",
+        "tips"
+      ]
+    },
+    {
+      "source_path": "appendix/development_tools.html",
+      "translation_path": "appendix/development_tools.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/appendix/development_tools.html",
+      "source_sha256": "c453792567bd1e0616fb62bc07ef6d2f67ddf38be62227427be0f9a457d00ac7",
+      "source_word_count": 341,
+      "source_heading_ids": [
+        "development-tools",
+        "tags",
+        "cscope",
+        "reffn_1",
+        "fn_1"
+      ]
+    },
+    {
+      "source_path": "appendix/hash_table.html",
+      "translation_path": "appendix/hash_table.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/appendix/hash_table.html",
+      "source_sha256": "961341e787f9b064b97c62d687b8e568ce3687acabc1caaaa6a2ce0b94fd9824",
+      "source_word_count": 2439,
+      "source_heading_ids": [
+        "hash-table",
+        "data-types",
+        "basic-functions",
+        "search-functions",
+        "iteration-functions",
+        "hash-table-example",
+        "auxiliary-data",
+        "synchronization"
+      ]
+    },
+    {
+      "source_path": "appendix/memory_allocation.html",
+      "translation_path": "appendix/memory_allocation.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/appendix/memory_allocation.html",
+      "source_sha256": "95baf16be6dfb65a1a823c260112ac8639e15119383f1d7455f668558b365eca",
+      "source_word_count": 1003,
+      "source_heading_ids": [
+        "memory-allocation",
+        "page-allocator",
+        "block-allocator"
+      ]
+    },
+    {
+      "source_path": "appendix/page_table.html",
+      "translation_path": "appendix/page_table.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/appendix/page_table.html",
+      "source_sha256": "971c838cb867feb3711eaa5772015e4ab8167b5074bce197ea9ac07b592ded69",
+      "source_word_count": 650,
+      "source_heading_ids": [
+        "page-table",
+        "creation-destruction-and-activation",
+        "inspection-and-updates",
+        "accessed-and-dirty-bits"
+      ]
+    },
+    {
+      "source_path": "appendix/synchronization.html",
+      "translation_path": "appendix/synchronization.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/appendix/synchronization.html",
+      "source_sha256": "52cc642ea7a9dd6b95a57afd5fbe636bae710f906b8ff0ae6e3474df289a233a",
+      "source_word_count": 2521,
+      "source_heading_ids": [
+        "synchronization",
+        "disabling-interrupts",
+        "semaphores",
+        "locks",
+        "monitors",
+        "monitor-example",
+        "optimization-barriers"
+      ]
+    },
+    {
+      "source_path": "appendix/threads.html",
+      "translation_path": "appendix/threads.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/appendix/threads.html",
+      "source_sha256": "858a8d07895be3ab650849ce7966d0083ac04b05456c313345da5911cee0a52e",
+      "source_word_count": 1279,
+      "source_heading_ids": [
+        "threads",
+        "struct-thread",
+        "thread-functions"
+      ]
+    },
+    {
+      "source_path": "appendix/virtual_address.html",
+      "translation_path": "appendix/virtual_address.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/appendix/virtual_address.html",
+      "source_sha256": "987f1bb7749f639889c27203b03d52a16589fe7cc38c369c543b2a19bebe8666",
+      "source_word_count": 673,
+      "source_heading_ids": [
+        "virtual-addresses"
+      ]
+    },
+    {
+      "source_path": "index.html",
+      "translation_path": "index.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/index.html",
+      "source_sha256": "6eecf1121fc62419e6beabf0806e20c12303624b979b74de2983060a65c7bf05",
+      "source_word_count": 366,
+      "source_heading_ids": [
+        "introduction"
+      ]
+    },
+    {
+      "source_path": "introduction/getting_started.html",
+      "translation_path": "introduction/getting_started.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/introduction/getting_started.html",
+      "source_sha256": "1c8f489810230d4f401b0e2bfb0c9b9563e0866cf3cabf131b853f78458501a5",
+      "source_word_count": 1060,
+      "source_heading_ids": [
+        "getting-started",
+        "source-tree-overview",
+        "building-pintos",
+        "running-pintos"
+      ]
+    },
+    {
+      "source_path": "introduction/grading.html",
+      "translation_path": "introduction/grading.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/introduction/grading.html",
+      "source_sha256": "96f76d4b90f31f80883dcbd272d106e38ec459fd96b72280c5cde99db650176d",
+      "source_word_count": 461,
+      "source_heading_ids": [
+        "grading",
+        "testing",
+        "submission"
+      ]
+    },
+    {
+      "source_path": "introduction/legal_and_ethical_issues.html",
+      "translation_path": "introduction/legal_and_ethical_issues.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/introduction/legal_and_ethical_issues.html",
+      "source_sha256": "8d03dab0bda7b76c0bec9ad9a494eb0f3cd62bfb54a3d9e3661e82d1aef0cc67",
+      "source_word_count": 165,
+      "source_heading_ids": [
+        "legal-and-ethical-issues"
+      ]
+    },
+    {
+      "source_path": "project1/FAQ.html",
+      "translation_path": "project1/FAQ.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project1/FAQ.html",
+      "source_sha256": "3ef4b43be2e6d1b219edb073e2017c19917ced8673790b77d625e3a00f78c9b6",
+      "source_word_count": 1571,
+      "source_heading_ids": [
+        "faq",
+        "how-much-code-will-i-need-to-write",
+        "how-do-i-update-the-makefiles-when-i-add-a-new-source-file",
+        "what-does-warning-no-previous-prototype-for-func-mean",
+        "what-is-the-interval-between-timer-interrupts",
+        "how-long-is-a-time-slice",
+        "how-do-i-run-the-tests",
+        "why-do-i-get-a-test-failure-in-pass",
+        "how-do-interrupts-get-re-enabled-in-the-new-thread-following-schedule",
+        "do-i-need-to-account-for-timer-values-overflowing",
+        "doesnt-priority-scheduling-lead-to-starvation",
+        "what-thread-should-run-after-a-lock-has-been-released",
+        "if-the-highest-priority-thread-yields-does-it-continue-running",
+        "what-happens-to-the-priority-of-a-donating-thread",
+        "can-a-threads-priority-change-while-it-is-on-the-ready-queue",
+        "can-a-threads-priority-change-while-it-is-blocked",
+        "can-a-thread-added-to-the-ready-list-preempt-the-processor",
+        "how-does-threadsetpriority-affect-a-thread-receiving-donations",
+        "doubled-test-names-in-output-make-them-fail",
+        "how-does-priority-donation-interact-with-the-advanced-scheduler",
+        "can-i-use-one-queue-instead-of-64-queues",
+        "some-scheduler-tests-fail-and-i-dont-understand-why-help"
+      ]
+    },
+    {
+      "source_path": "project1/advanced_scheduler.html",
+      "translation_path": "project1/advanced_scheduler.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project1/advanced_scheduler.html",
+      "source_sha256": "061df2da5cc3ff7c4213c7950375fd099ff0888442c4a910e307caedeed4dce6",
+      "source_word_count": 2541,
+      "source_heading_ids": [
+        "advanced-scheduler",
+        "44bsd-scheduler",
+        "niceness",
+        "calculating-priority",
+        "calculating-recentcpu",
+        "calculating-loadavg",
+        "summary",
+        "fixed-point-real-arithmetic"
+      ]
+    },
+    {
+      "source_path": "project1/alarm_clock.html",
+      "translation_path": "project1/alarm_clock.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project1/alarm_clock.html",
+      "source_sha256": "d920fa8b25620ad47c8cfc0c0ba0a8445b103e91e495108241e20d38837b2426",
+      "source_word_count": 227,
+      "source_heading_ids": [
+        "alarm-clock"
+      ]
+    },
+    {
+      "source_path": "project1/introduction.html",
+      "translation_path": "project1/introduction.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project1/introduction.html",
+      "source_sha256": "d64ecb735ac277efa8bfb5f8b3a7732cf73dc243660fe1e1e18bbfec142ad7bd",
+      "source_word_count": 2104,
+      "source_heading_ids": [
+        "project1-threads",
+        "background",
+        "understanding-threads",
+        "source-files",
+        "threads-codes",
+        "devices-codes",
+        "lib-codes",
+        "synchronization",
+        "development-suggestions"
+      ]
+    },
+    {
+      "source_path": "project1/priority_scheduling.html",
+      "translation_path": "project1/priority_scheduling.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project1/priority_scheduling.html",
+      "source_sha256": "2a5ca89e16d50353dcf3d4819c23e0a737092ed2db4b826e7b8d254b1ebff813",
+      "source_word_count": 479,
+      "source_heading_ids": [
+        "priority-scheduling"
+      ]
+    },
+    {
+      "source_path": "project2/FAQ.html",
+      "translation_path": "project2/FAQ.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project2/FAQ.html",
+      "source_sha256": "37fdf7959be57b50190e016094c4f97d0842ba693707702510a884e8d2d26b9c",
+      "source_word_count": 937,
+      "source_heading_ids": [
+        "faq",
+        "how-much-code-will-i-need-to-write",
+        "the-kernel-always-panics-when-i-run-pintos--p-file-----q",
+        "when-i-run-pintos--p-file----file-isnt-copied",
+        "all-my-user-programs-die-with-page-faults",
+        "all-my-user-programs-die-with-system-call",
+        "how-can-i-disassemble-user-programs",
+        "why-do-many-c-include-files-not-work-in-pintos-programs",
+        "can-i-use-libfoo-in-my-pintos-programs",
+        "how-do-i-compile-new-user-programs",
+        "can-i-run-user-programs-under-a-debugger",
+        "whats-the-difference-between-tidt-and-pidt",
+        "can-i-just-cast-a-struct-file--to-get-a-file-descriptor",
+        "can-i-just-cast-a-struct-thread--to-a-pidt",
+        "can-i-set-a-maximum-number-of-open-files-per-process",
+        "what-happens-when-an-open-file-is-removed",
+        "how-can-i-run-user-programs-that-need-more-than-4-kb-stack-space"
+      ]
+    },
+    {
+      "source_path": "project2/argument_passing.html",
+      "translation_path": "project2/argument_passing.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project2/argument_passing.html",
+      "source_sha256": "339d810f929978788422d93df32625cf76d758ccac4ed81c9f9b8a73a8a2275a",
+      "source_word_count": 786,
+      "source_heading_ids": [
+        "argument-passing",
+        "x86-64-calling-convention",
+        "program-startup-details",
+        "implement-the-argument-passing"
+      ]
+    },
+    {
+      "source_path": "project2/deny_write.html",
+      "translation_path": "project2/deny_write.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project2/deny_write.html",
+      "source_sha256": "fdc9d660d61c362006ef93dce424ab45bfd8c199958a9a4b9db1a9e568ae763f",
+      "source_word_count": 119,
+      "source_heading_ids": [
+        "deny-write-on-executables"
+      ]
+    },
+    {
+      "source_path": "project2/dup.html",
+      "translation_path": "project2/dup.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project2/dup.html",
+      "source_sha256": "f7ca598d9f14f6fef785c3c1f9ae714614d8ffeb2eff81aa0b37025dbb76270d",
+      "source_word_count": 277,
+      "source_heading_ids": [
+        "extend-file-descriptor-extra"
+      ]
+    },
+    {
+      "source_path": "project2/introduction.html",
+      "translation_path": "project2/introduction.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project2/introduction.html",
+      "source_sha256": "85a19ae27ebdbe3e46df9f1ffddd1cf3c9098da98834fae110fb18717fab09d9",
+      "source_word_count": 2797,
+      "source_heading_ids": [
+        "project2-user-programs",
+        "background",
+        "source-files",
+        "using-the-file-system",
+        "how-user-programs-work",
+        "virtual-memory-layout",
+        "typical-memory-layout",
+        "accessing-user-memory"
+      ]
+    },
+    {
+      "source_path": "project2/process_termination.html",
+      "translation_path": "project2/process_termination.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project2/process_termination.html",
+      "source_sha256": "1e1d6051a820e2e5185651f7e71252df4b18b8105f7f012cafeedff1a177bb33",
+      "source_word_count": 123,
+      "source_heading_ids": [
+        "process-termination-message"
+      ]
+    },
+    {
+      "source_path": "project2/system_call.html",
+      "translation_path": "project2/system_call.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project2/system_call.html",
+      "source_sha256": "9752c72c903943e2b578dc3a74bc98a6d189dd1e89789e5137890a168c998bf2",
+      "source_word_count": 2021,
+      "source_heading_ids": [
+        "system-calls",
+        "system-call-details",
+        "implement-the-following-system-calls"
+      ]
+    },
+    {
+      "source_path": "project2/user_memory.html",
+      "translation_path": "project2/user_memory.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project2/user_memory.html",
+      "source_sha256": "e86332b9e300157c1f7968ad37e4c65a4b57f40e7cc0aff6c2eee47ea4b96e2d",
+      "source_word_count": 93,
+      "source_heading_ids": [
+        "user-memory-access"
+      ]
+    },
+    {
+      "source_path": "project3/FAQ.html",
+      "translation_path": "project3/FAQ.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project3/FAQ.html",
+      "source_sha256": "5bc7f5e4fbee31d6319c338bd254bbc73d665ffc538d7556437ae062833df3e7",
+      "source_word_count": 255,
+      "source_heading_ids": [
+        "faq",
+        "do-we-need-a-working-project-2-to-implement-project-3",
+        "how-do-we-resume-a-process-after-we-have-handled-a-page-fault",
+        "does-the-virtual-memory-system-need-to-support-data-segment-growth",
+        "why-should-i-use-paluser-for-allocating-page-frames"
+      ]
+    },
+    {
+      "source_path": "project3/accessing_user_memory.md",
+      "translation_path": "project3/accessing_user_memory.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project3/accessing_user_memory.md",
+      "source_sha256": "43a5f28171ffb46ee6201e78cd1438a070cbc9beb1b8031e5197bd7fa2f48cee",
+      "source_word_count": 284,
+      "source_heading_ids": []
+    },
+    {
+      "source_path": "project3/anon.html",
+      "translation_path": "project3/anon.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project3/anon.html",
+      "source_sha256": "f70034963bb4dd5c08cfdd89ab8121026026c3571e442ba92f9be24b9e62db3a",
+      "source_word_count": 1604,
+      "source_heading_ids": [
+        "anonymous-page",
+        "page-initialization-with-lazy-loading",
+        "lazy-loading-for-executable",
+        "supplemental-page-table---revisit",
+        "page-cleanup"
+      ]
+    },
+    {
+      "source_path": "project3/cow.html",
+      "translation_path": "project3/cow.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project3/cow.html",
+      "source_sha256": "4927e4762dad94a15a5331f5d2c1f61ac13e0e1b6dff14ad7906733c2874aed2",
+      "source_word_count": 411,
+      "source_heading_ids": [
+        "copy-on-write-extra"
+      ]
+    },
+    {
+      "source_path": "project3/introduction.html",
+      "translation_path": "project3/introduction.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project3/introduction.html",
+      "source_sha256": "ccb59b5f733a2bef3477ed38051d9397ef21f566a4daee2bdf60228e62692be8",
+      "source_word_count": 2849,
+      "source_heading_ids": [
+        "project3-virtual-memory",
+        "background",
+        "source-files",
+        "memory-terminology",
+        "pages",
+        "frames",
+        "page-tables",
+        "swap-slots",
+        "resource-management-overview",
+        "choices-of-implementation-performance-perspective",
+        "managing-the-supplemental-page-table",
+        "organization-of-supplemental-page-table",
+        "handling-page-fault",
+        "managing-the-frame-table",
+        "accessed-and-dirty-bits",
+        "managing-the-swap-table",
+        "managing-memory-mapped-files"
+      ]
+    },
+    {
+      "source_path": "project3/memory_mapped_files.html",
+      "translation_path": "project3/memory_mapped_files.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project3/memory_mapped_files.html",
+      "source_sha256": "2104c665da7e86ba3540b8bc0e686630f75ce2b703680d9a4851e387fb100369",
+      "source_word_count": 753,
+      "source_heading_ids": [
+        "memory-mapped-files",
+        "mmap-and-munmap-system-call"
+      ]
+    },
+    {
+      "source_path": "project3/paging.md",
+      "translation_path": "project3/paging.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project3/paging.md",
+      "source_sha256": "2dd60e5106df31f7ddfdc0e111524438e38061d6142b23bc6a081924e3d76c07",
+      "source_word_count": 294,
+      "source_heading_ids": []
+    },
+    {
+      "source_path": "project3/stack_growth.html",
+      "translation_path": "project3/stack_growth.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project3/stack_growth.html",
+      "source_sha256": "573b5ec728648f70b2b244732560fb602aef98ccb3783cded44c25835f2196ff",
+      "source_word_count": 467,
+      "source_heading_ids": [
+        "stack-growth"
+      ]
+    },
+    {
+      "source_path": "project3/swapping.html",
+      "translation_path": "project3/swapping.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project3/swapping.html",
+      "source_sha256": "7b4b59b3cb55c69fdeefc3d3178258b73f9327ac1b5ec57295075b81e85ce0dc",
+      "source_word_count": 657,
+      "source_heading_ids": [
+        "swap-inout",
+        "anonymous-page",
+        "file-mapped-page"
+      ]
+    },
+    {
+      "source_path": "project3/vm_management.html",
+      "translation_path": "project3/vm_management.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project3/vm_management.html",
+      "source_sha256": "7c7709c1ddbe402f07a0e1a2c096e34251b192c146c299332fecfd99c11415ff",
+      "source_word_count": 1256,
+      "source_heading_ids": [
+        "memory-management",
+        "page-structure-and-operations",
+        "struct-page",
+        "page-operations",
+        "implement-supplemental-page-table",
+        "frame-management"
+      ]
+    },
+    {
+      "source_path": "project4/FAQ.html",
+      "translation_path": "project4/FAQ.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project4/FAQ.html",
+      "source_sha256": "19af25506d585c6716ecf0a7b89c2bd3c49206cca73615daac742bd1f3170d8f",
+      "source_word_count": 464,
+      "source_heading_ids": [
+        "faq",
+        "can-blocksectorsize-change",
+        "indexed-files-faq",
+        "what-is-the-largest-file-size-that-we-are-supposed-to-support",
+        "subdirectories-faq",
+        "how-should-a-file-name-like-ab-be-interpreted",
+        "how-about-a-file-name-like-x",
+        "how-should-a-file-name-that-ends-in--be-treated",
+        "buffer-cache-faq",
+        "can-we-keep-a-struct-inodedisk-inside-struct-inode"
+      ]
+    },
+    {
+      "source_path": "project4/buffer_cache.html",
+      "translation_path": "project4/buffer_cache.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project4/buffer_cache.html",
+      "source_sha256": "5d6c9dc8531cf9d537626e7978b436fc2a789cac29d67e96e43ed96a998fcf17",
+      "source_word_count": 548,
+      "source_heading_ids": [
+        "buffer-cache-extra-credit",
+        "hint-for-implementation"
+      ]
+    },
+    {
+      "source_path": "project4/indexed_and_extensible_files.html",
+      "translation_path": "project4/indexed_and_extensible_files.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project4/indexed_and_extensible_files.html",
+      "source_sha256": "73d9efc2f57dfa0e31436abd061205c2f26fb7cf0bbd2d8c70129c5092128b8c",
+      "source_word_count": 1054,
+      "source_heading_ids": [
+        "indexed-and-extensible-files",
+        "indexing-large-files-with-fat-file-allocation-table",
+        "file-growth"
+      ]
+    },
+    {
+      "source_path": "project4/introduction.html",
+      "translation_path": "project4/introduction.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project4/introduction.html",
+      "source_sha256": "d4f07463aef2597c0745ed989a9c7419dc61cb3806a55bcb90fb01e91658b722",
+      "source_word_count": 620,
+      "source_heading_ids": [
+        "project-4-file-systems",
+        "background",
+        "new-code",
+        "testing-file-system-persistence"
+      ]
+    },
+    {
+      "source_path": "project4/subdirectories.html",
+      "translation_path": "project4/subdirectories.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project4/subdirectories.html",
+      "source_sha256": "539f832aca3bdcefb6e3cc7cb1047b277557b324536a4ffb0343feb345d4075f",
+      "source_word_count": 760,
+      "source_heading_ids": [
+        "subdirectories",
+        "soft-link"
+      ]
+    },
+    {
+      "source_path": "project4/synchronization.html",
+      "translation_path": "project4/synchronization.md",
+      "source_url": "https://casys-kaist.github.io/pintos-kaist/project4/synchronization.html",
+      "source_sha256": "6e04b231d7d05a5399c5d9ea46c21b4afc3236dc2d5eef652e596897331491d8",
+      "source_word_count": 351,
+      "source_heading_ids": [
+        "synchronization"
+      ]
+    }
+  ],
+  "broken_upstream_documents": {
+    "appendix/appendix/debugging_tools.md": 404,
+    "appendix/debuuging_tools.md": 404,
+    "appendix/memoryAllocation.md": 404
+  }
+}
