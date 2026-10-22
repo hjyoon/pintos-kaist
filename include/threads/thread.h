@@ -92,6 +92,12 @@ struct thread {
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
 
+	/* State for the 4.4BSD scheduler.  recent_cpu uses signed 17.14
+	   fixed point; all_elem also tracks blocked threads for updates. */
+	int nice;
+	int32_t recent_cpu;
+	struct list_elem all_elem;
+
 	/* Owned by devices/timer.c while this thread sleeps. */
 	int64_t wake_up_tick;               /* Earliest tick to become ready. */
 	struct list_elem sleep_elem;       /* Element in the timer sleep list. */
@@ -118,7 +124,7 @@ struct thread {
 	unsigned magic;                     /* Detects stack overflow. */
 };
 
-/* If false (default), use round-robin scheduler.
+/* If false (default), use priority scheduling with donation.
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
