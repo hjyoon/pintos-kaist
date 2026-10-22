@@ -108,24 +108,18 @@ struct thread {
 	struct lock *waiting_lock;
 	struct list locks;
 
-	/* Parent/child state used by the argument-passing implementation. */
-	struct thread *parent;
-	struct thread *child;
-	struct semaphore sema_exit;
-	int exit_status;
-
-	/* NOTE: The beginning where custom code is added */
-	struct list file_list;      /* List of open file descriptors */
-    struct lock file_list_lock; /* Lock for thread-safe access to file_list */
-	/* NOTE: The end where custom code is added */
-
-
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
+	struct list children;              /* Owned child-status references. */
+	struct child_status *as_child;      /* This process's exit record. */
+	struct file **fd_table;             /* One separately allocated page. */
+	struct file *executable;            /* Kept open with writes denied. */
+	int exit_status;
+	bool is_user_process;
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
