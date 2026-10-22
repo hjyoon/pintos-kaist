@@ -110,15 +110,15 @@ sema_up (struct semaphore *sema) {
 
 	old_level = intr_disable ();
 	if (!list_empty (&sema->waiters)) {
-		/* NOTE: The beginning where custom code is added */
-		list_sort(&sema->waiters, thread_priority_less, NULL);
-		/* NOTE: The end where custom code is added */
-		thread_unblock (list_entry (list_pop_front (&sema->waiters), struct thread, elem));
+		/* Priorities may have changed while the waiters were blocked.
+		   Selecting now also preserves FIFO among equal priorities. */
+		struct list_elem *e = list_min (&sema->waiters,
+		                               thread_priority_less, NULL);
+		list_remove (e);
+		thread_unblock (list_entry (e, struct thread, elem));
 	}
 	sema->value++;
-	/* NOTE: The beginning where custom code is added */
-	check_preemption();
-	/* NOTE: The end where custom code is added */
+	check_preemption ();
 	intr_set_level (old_level);
 }
 
