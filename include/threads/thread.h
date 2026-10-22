@@ -30,11 +30,14 @@ typedef int tid_t;
 #define PRI_MAX 63                      /* Highest priority. */
 
 #ifdef USERPROG
-/* The public seek/tell interface uses unsigned positions, while inode
-   offsets remain signed.  Keep the complete position in each descriptor. */
+/* Descriptors alias a reference-counted open description.  Positions retain
+   the full unsigned seek/tell range independently of signed inode offsets. */
+enum process_fd_kind { FD_FILE, FD_INPUT, FD_OUTPUT };
 struct process_fd {
 	struct file *file;
 	uint32_t position;
+	unsigned references;
+	enum process_fd_kind kind;
 };
 #endif
 
@@ -125,7 +128,7 @@ struct thread {
 	uint64_t *pml4;                     /* Page map level 4 */
 	struct list children;              /* Owned child-status references. */
 	struct child_status *as_child;      /* This process's exit record. */
-	struct process_fd *fd_table;             /* One separately allocated page. */
+	struct process_fd **fd_table;             /* One separately allocated page. */
 	struct file *executable;            /* Kept open with writes denied. */
 	int exit_status;
 	bool is_user_process;

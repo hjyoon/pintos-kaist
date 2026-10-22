@@ -134,14 +134,33 @@ copy_process_name (const char *name, size_t length) {
 	return copy;
 }
 
+/* All references, including those used by dup2, are protected by filesys_lock. */
+void
+process_fd_release (struct process_fd *entry) {
+	if (entry != NULL && --entry->references == 0) {
+		file_close (entry->file);
+		free (entry);
+	}
+}
+
 static bool
 process_init (void) {
 	struct thread *current = thread_current ();
 	current->is_user_process = true;
-	_Static_assert (FD_COUNT * sizeof (struct process_fd) <= PGSIZE,
+	_Static_assert (FD_COUNT * sizeof (struct process_fd *) <= PGSIZE,
 	                "file descriptors must fit in their allocated page");
 	current->fd_table = palloc_get_page (PAL_ZERO);
-	return current->fd_table != NULL;
+	if (current->fd_table == NULL)
+		return false;
+	for (int fd = 0; fd < 2; fd++) {
+		struct process_fd *entry = calloc (1, sizeof *entry);
+		if (entry == NULL)
+			return false;
+		entry->kind = fd == 0 ? FD_INPUT : FD_OUTPUT;
+		entry->references = 1;
+		current->fd_table[fd] = entry;
+	}
+	return true;
 }
 
 tid_t
@@ -283,15 +302,38 @@ __do_fork (void *aux_) {
 	}
 	if (success) {
 		lock_acquire (&filesys_lock);
-		for (int fd = 2; fd < FD_COUNT; fd++) {
-			if (parent->fd_table[fd].file != NULL) {
-				current->fd_table[fd].file = file_duplicate (parent->fd_table[fd].file);
-				current->fd_table[fd].position = parent->fd_table[fd].position;
-				if (current->fd_table[fd].file == NULL) {
+		/* Preserve the parent's alias groups while copying file descriptions,
+		   as required by Pintos's independent parent/child file positions. */
+		for (int fd = 0; fd < FD_COUNT; fd++) {
+			process_fd_release (current->fd_table[fd]);
+			current->fd_table[fd] = NULL;
+			struct process_fd *source = parent->fd_table[fd];
+			if (source == NULL)
+				continue;
+			for (int previous = 0; previous < fd; previous++)
+				if (parent->fd_table[previous] == source) {
+					current->fd_table[fd] = current->fd_table[previous];
+					current->fd_table[fd]->references++;
+					break;
+				}
+			if (current->fd_table[fd] != NULL)
+				continue;
+			struct process_fd *copy = malloc (sizeof *copy);
+			if (copy == NULL) {
+				success = false;
+				break;
+			}
+			*copy = *source;
+			copy->references = 1;
+			if (source->file != NULL) {
+				copy->file = file_duplicate (source->file);
+				if (copy->file == NULL) {
+					free (copy);
 					success = false;
 					break;
 				}
 			}
+			current->fd_table[fd] = copy;
 		}
 		if (success && parent->executable != NULL) {
 			current->executable = file_duplicate (parent->executable);
@@ -397,8 +439,8 @@ process_exit (void) {
 	if (current->fd_table != NULL || current->executable != NULL) {
 		lock_acquire (&filesys_lock);
 		if (current->fd_table != NULL)
-			for (int fd = 2; fd < FD_COUNT; fd++)
-				file_close (current->fd_table[fd].file);
+			for (int fd = 0; fd < FD_COUNT; fd++)
+				process_fd_release (current->fd_table[fd]);
 		file_close (current->executable);
 		current->executable = NULL;
 		lock_release (&filesys_lock);

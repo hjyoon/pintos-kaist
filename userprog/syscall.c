@@ -12,6 +12,7 @@
 
 /* NOTE: The beginning where custom code is added */
 #include "threads/palloc.h"
+#include "threads/malloc.h"
 #include "threads/mmu.h"
 #include "threads/pte.h"
 #include <string.h>
@@ -116,10 +117,16 @@ copy_user_string (const char *user) {
 	return NULL;
 }
 
+static struct process_fd *
+lookup_fd (int fd) {
+	struct process_fd **table = thread_current ()->fd_table;
+	return table != NULL && fd >= 0 && fd < FD_COUNT ? table[fd] : NULL;
+}
+
 static struct file *
 lookup_file (int fd) {
-	struct process_fd *table = thread_current ()->fd_table;
-	return table != NULL && fd >= 2 && fd < FD_COUNT ? table[fd].file : NULL;
+	struct process_fd *entry = lookup_fd (fd);
+	return entry != NULL ? entry->file : NULL;
 }
 
 static int
@@ -129,10 +136,15 @@ sys_open (const char *user) {
 		return -1;
 	struct thread *current = thread_current ();
 	int fd;
-	for (fd = 2; fd < FD_COUNT; fd++)
-		if (current->fd_table[fd].file == NULL)
+	for (fd = 0; fd < FD_COUNT; fd++)
+		if (current->fd_table[fd] == NULL)
 			break;
 	if (fd == FD_COUNT) {
+		palloc_free_page (name);
+		return -1;
+	}
+	struct process_fd *entry = calloc (1, sizeof *entry);
+	if (entry == NULL) {
 		palloc_free_page (name);
 		return -1;
 	}
@@ -140,10 +152,14 @@ sys_open (const char *user) {
 	struct file *file = filesys_open (name);
 	lock_release (&filesys_lock);
 	palloc_free_page (name);
-	if (file == NULL)
+	if (file == NULL) {
+		free (entry);
 		return -1;
-	current->fd_table[fd].file = file;
-	current->fd_table[fd].position = 0;
+	}
+	entry->file = file;
+	entry->kind = FD_FILE;
+	entry->references = 1;
+	current->fd_table[fd] = entry;
 	return fd;
 }
 
@@ -173,14 +189,29 @@ sys_remove (const char *user) {
 
 static void
 sys_close (int fd) {
-	struct file *file = lookup_file (fd);
-	if (file != NULL) {
-		thread_current ()->fd_table[fd].file = NULL;
-		thread_current ()->fd_table[fd].position = 0;
+	struct process_fd *entry = lookup_fd (fd);
+	if (entry != NULL) {
+		thread_current ()->fd_table[fd] = NULL;
 		lock_acquire (&filesys_lock);
-		file_close (file);
+		process_fd_release (entry);
 		lock_release (&filesys_lock);
 	}
+}
+
+static int
+sys_dup2 (int oldfd, int newfd) {
+	struct process_fd *entry = lookup_fd (oldfd);
+	if (entry == NULL || newfd < 0 || newfd >= FD_COUNT)
+		return -1;
+	if (oldfd == newfd)
+		return newfd;
+	lock_acquire (&filesys_lock);
+	/* Retain first: newfd may already be an alias of oldfd. */
+	entry->references++;
+	process_fd_release (thread_current ()->fd_table[newfd]);
+	thread_current ()->fd_table[newfd] = entry;
+	lock_release (&filesys_lock);
+	return newfd;
 }
 
 /* Validate the whole range before allocating a bounce page or taking a
@@ -189,8 +220,9 @@ static int
 sys_read (int fd, void *buffer, unsigned size) {
 	if (!user_buffer_valid (buffer, size, true))
 		syscall_exit (-1);
-	struct file *file = lookup_file (fd);
-	if (fd != STDIN_FILENO && file == NULL)
+	struct process_fd *entry = lookup_fd (fd);
+	struct file *file = entry != NULL ? entry->file : NULL;
+	if (entry == NULL || entry->kind == FD_OUTPUT)
 		return -1;
 	if (size == 0)
 		return 0;
@@ -205,12 +237,11 @@ sys_read (int fd, void *buffer, unsigned size) {
 		if (chunk > PGSIZE)
 			chunk = PGSIZE;
 		int count;
-		if (fd == STDIN_FILENO) {
+		if (entry->kind == FD_INPUT) {
 			for (size_t i = 0; i < chunk; i++)
 				copy[i] = input_getc ();
 			count = chunk;
 		} else {
-			struct process_fd *entry = &thread_current ()->fd_table[fd];
 			/* The base filesystem cannot grow beyond signed inode offsets.
 			   An unsigned position past EOF must not be narrowed first. */
 			if (entry->position >= (uint32_t) file_length (file))
@@ -238,8 +269,9 @@ static int
 sys_write (int fd, const void *buffer, unsigned size) {
 	if (!user_buffer_valid (buffer, size, false))
 		syscall_exit (-1);
-	struct file *file = lookup_file (fd);
-	if (fd != STDOUT_FILENO && file == NULL)
+	struct process_fd *entry = lookup_fd (fd);
+	struct file *file = entry != NULL ? entry->file : NULL;
+	if (entry == NULL || entry->kind == FD_INPUT)
 		return -1;
 	if (size == 0)
 		return 0;
@@ -255,11 +287,10 @@ sys_write (int fd, const void *buffer, unsigned size) {
 			chunk = PGSIZE;
 		memcpy (copy, (const char *) buffer + total, chunk);
 		int count;
-		if (fd == STDOUT_FILENO) {
+		if (entry->kind == FD_OUTPUT) {
 			putbuf (copy, chunk);
 			count = chunk;
 		} else {
-			struct process_fd *entry = &thread_current ()->fd_table[fd];
 			if (entry->position >= (uint32_t) file_length (file))
 				count = 0;
 			else {
@@ -311,6 +342,9 @@ syscall_handler (struct intr_frame *f) {
 		case SYS_OPEN:
 			f->R.rax = sys_open ((const char *) f->R.rdi);
 			break;
+		case SYS_DUP2:
+			f->R.rax = sys_dup2 ((int) f->R.rdi, (int) f->R.rsi);
+			break;
 		case SYS_CLOSE:
 			sys_close ((int) f->R.rdi);
 			break;
@@ -325,9 +359,9 @@ syscall_handler (struct intr_frame *f) {
 				if (call == SYS_FILESIZE)
 					f->R.rax = file_length (file);
 				else if (call == SYS_TELL)
-					f->R.rax = thread_current ()->fd_table[(int) f->R.rdi].position;
+					f->R.rax = thread_current ()->fd_table[(int) f->R.rdi]->position;
 				else
-					thread_current ()->fd_table[(int) f->R.rdi].position =
+					thread_current ()->fd_table[(int) f->R.rdi]->position =
 						(unsigned) f->R.rsi;
 				lock_release (&filesys_lock);
 			}
