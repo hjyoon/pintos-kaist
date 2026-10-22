@@ -92,6 +92,10 @@ struct thread {
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
 
+	/* Owned by devices/timer.c while this thread sleeps. */
+	int64_t wake_up_tick;               /* Earliest tick to become ready. */
+	struct list_elem sleep_elem;       /* Element in the timer sleep list. */
+
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 

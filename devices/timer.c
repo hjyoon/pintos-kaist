@@ -17,35 +17,16 @@
 #error TIMER_FREQ <= 1000 recommended
 #endif
 
-/* NOTE: The beginning where custom code is added */
-#define MAX_SLEEP_THREADS 100
-struct sleep_thread {
-    struct thread *t;
-    int64_t wake_up_tick;
-    struct list_elem elem;
-};
-static struct sleep_thread sleep_thread_pool[MAX_SLEEP_THREADS];
+/* Threads waiting for their wake-up tick, ordered earliest first. */
 static struct list sleep_list;
-static struct list sleep_thread_free_list;
-static bool thread_wake_up_time_less(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
-    struct sleep_thread *st_a = list_entry(a, struct sleep_thread, elem);
-    struct sleep_thread *st_b = list_entry(b, struct sleep_thread, elem);
-    return st_a->wake_up_tick < st_b->wake_up_tick;
+
+static bool
+thread_wake_up_time_less (const struct list_elem *a,
+                         const struct list_elem *b, void *aux UNUSED) {
+	const struct thread *ta = list_entry (a, struct thread, sleep_elem);
+	const struct thread *tb = list_entry (b, struct thread, sleep_elem);
+	return ta->wake_up_tick < tb->wake_up_tick;
 }
-static struct sleep_thread* allocate_sleep_thread(void) {
-    if (!list_empty(&sleep_thread_free_list)) {
-        struct list_elem *e = list_pop_front(&sleep_thread_free_list);
-        struct sleep_thread *st = list_entry(e, struct sleep_thread, elem);
-        return st;
-    }
-    return NULL;
-}
-static void free_sleep_thread(struct sleep_thread *st) {
-    st->t = NULL;
-    st->wake_up_tick = 0;
-    list_push_back(&sleep_thread_free_list, &st->elem);
-}
-/* NOTE: The end where custom code is added */
 
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
@@ -74,16 +55,7 @@ timer_init (void) {
 
 	intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 
-	/* NOTE: The beginning where custom code is added */
-	list_init(&sleep_list);
-	list_init(&sleep_thread_free_list);
-
-    for (int i = 0; i < MAX_SLEEP_THREADS; i++) {
-        sleep_thread_pool[i].t = NULL;
-        sleep_thread_pool[i].wake_up_tick = 0;
-        list_push_back(&sleep_thread_free_list, &sleep_thread_pool[i].elem);
-    }
-	/* NOTE: The end where custom code is added */
+	list_init (&sleep_list);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -130,23 +102,18 @@ timer_elapsed (int64_t then) {
 
 /* Suspends execution for approximately TICKS timer ticks. */
 void
-timer_sleep(int64_t ticks) {
-    int64_t start = timer_ticks();
-    int64_t wake_up_tick = start + ticks;
-	
-	ASSERT(intr_get_level() == INTR_ON);
-    enum intr_level old_level = intr_disable();
-    struct sleep_thread *st = allocate_sleep_thread();
-    if (st == NULL) {
-        PANIC("timer_sleep: sleep_thread_pool is full!");
-    }
-    st->t = thread_current();
-    st->wake_up_tick = wake_up_tick;
+timer_sleep (int64_t ticks) {
+	ASSERT (intr_get_level () == INTR_ON);
+	if (ticks <= 0)
+		return;
 
-    /* Sort ascending by wake_up_tick */
-    list_insert_ordered(&sleep_list, &st->elem, thread_wake_up_time_less, NULL);
-    thread_block();
-    intr_set_level(old_level);
+	enum intr_level old_level = intr_disable ();
+	struct thread *current = thread_current ();
+	current->wake_up_tick = timer_ticks () + ticks;
+	list_insert_ordered (&sleep_list, &current->sleep_elem,
+	                     thread_wake_up_time_less, NULL);
+	thread_block ();
+	intr_set_level (old_level);
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -175,21 +142,18 @@ timer_print_stats (void) {
 
 /* Timer interrupt handler. */
 static void
-timer_interrupt(struct intr_frame *args UNUSED) {
-    ticks++;
-    thread_tick();
+timer_interrupt (struct intr_frame *args UNUSED) {
+	ticks++;
+	thread_tick ();
 
-    while (!list_empty(&sleep_list)) {
-        struct list_elem *e = list_front(&sleep_list);
-        struct sleep_thread *st = list_entry(e, struct sleep_thread, elem);
-        if (st->wake_up_tick > ticks) {
-			/* No need to check anymore since the sleep list is sorted by wake_up_tick */
-            break;
-		}
-        list_pop_front(&sleep_list);
-        thread_unblock(st->t);
-        free_sleep_thread(st);
-    }
+	while (!list_empty (&sleep_list)) {
+		struct thread *t = list_entry (list_front (&sleep_list),
+		                              struct thread, sleep_elem);
+		if (t->wake_up_tick > ticks)
+			break;
+		list_pop_front (&sleep_list);
+		thread_unblock (t);
+	}
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
