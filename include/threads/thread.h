@@ -129,6 +129,8 @@ tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
 void thread_block (void);
 void thread_unblock (struct thread *);
+bool thread_priority_less (const struct list_elem *,
+                           const struct list_elem *, void *);
 
 struct thread *thread_current (void);
 tid_t thread_tid (void);
