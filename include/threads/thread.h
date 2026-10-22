@@ -129,6 +129,7 @@ struct thread {
 	struct file *executable;            /* Kept open with writes denied. */
 	int exit_status;
 	bool is_user_process;
+	char *process_name;                /* Owned full name for exit messages. */
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */

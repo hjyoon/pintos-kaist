@@ -88,11 +88,13 @@ struct child_status {
 
 struct launch_aux {
 	char *command;
+	char *name;
 	struct child_status *status;
 };
 
 struct fork_aux {
 	struct thread *parent;
+	char *name;
 	struct child_status *status;
 	struct intr_frame frame;
 };
@@ -120,6 +122,18 @@ status_put (struct child_status *s) {
 		free (s);
 }
 
+/* Keep the complete process name separately from thread.name, whose
+   small debugging buffer is intentionally allowed to truncate. */
+static char *
+copy_process_name (const char *name, size_t length) {
+	char *copy = malloc (length + 1);
+	if (copy != NULL) {
+		memcpy (copy, name, length);
+		copy[length] = '\0';
+	}
+	return copy;
+}
+
 static bool
 process_init (void) {
 	struct thread *current = thread_current ();
@@ -134,27 +148,31 @@ tid_t
 process_create_initd (const char *command) {
 	if (strnlen (command, PGSIZE) == PGSIZE)
 		return TID_ERROR;
+	const char *name = command + strspn (command, " ");
+	size_t length = strcspn (name, " ");
+	char *full_name = copy_process_name (name, length);
 	char *copy = palloc_get_page (0);
 	struct child_status *status = new_status ();
 	struct launch_aux *aux = malloc (sizeof *aux);
-	if (copy == NULL || status == NULL || aux == NULL) {
+	if (full_name == NULL || copy == NULL || status == NULL || aux == NULL) {
+		free (full_name);
 		palloc_free_page (copy);
 		free (status);
 		free (aux);
 		return TID_ERROR;
 	}
 	strlcpy (copy, command, PGSIZE);
-	const char *name = command + strspn (command, " ");
-	size_t length = strcspn (name, " ");
 	char thread_name[16];
 	if (length >= sizeof thread_name)
 		length = sizeof thread_name - 1;
 	memcpy (thread_name, name, length);
 	thread_name[length] = '\0';
 	aux->command = copy;
+	aux->name = full_name;
 	aux->status = status;
 	tid_t tid = thread_create (thread_name, PRI_DEFAULT, initd, aux);
 	if (tid == TID_ERROR) {
+		free (full_name);
 		palloc_free_page (copy);
 		free (status);
 		free (aux);
@@ -169,6 +187,7 @@ static void
 initd (void *aux_) {
 	struct launch_aux *aux = aux_;
 	char *command = aux->command;
+	thread_current ()->process_name = aux->name;
 	thread_current ()->as_child = aux->status;
 	free (aux);
 #ifdef VM
@@ -185,18 +204,22 @@ initd (void *aux_) {
 
 tid_t
 process_fork (const char *name, struct intr_frame *frame) {
+	char *full_name = copy_process_name (name, strlen (name));
 	struct fork_aux *aux = malloc (sizeof *aux);
 	struct child_status *status = new_status ();
-	if (aux == NULL || status == NULL) {
+	if (full_name == NULL || aux == NULL || status == NULL) {
+		free (full_name);
 		free (aux);
 		free (status);
 		return TID_ERROR;
 	}
 	aux->parent = thread_current ();
+	aux->name = full_name;
 	aux->status = status;
 	memcpy (&aux->frame, frame, sizeof *frame);
 	tid_t tid = thread_create (name, thread_current ()->priority, __do_fork, aux);
 	if (tid == TID_ERROR) {
+		free (full_name);
 		free (aux);
 		free (status);
 		return TID_ERROR;
@@ -238,8 +261,9 @@ __do_fork (void *aux_) {
 	struct child_status *status = aux->status;
 	struct intr_frame frame;
 	memcpy (&frame, &aux->frame, sizeof frame);
-	free (aux);
 	struct thread *current = thread_current ();
+	current->process_name = aux->name;
+	free (aux);
 	current->as_child = status;
 #ifdef VM
 	supplemental_page_table_init (&current->spt);
@@ -363,8 +387,13 @@ process_wait (tid_t tid) {
 void
 process_exit (void) {
 	struct thread *current = thread_current ();
-	if (current->is_user_process)
-		printf ("%s: exit(%d)\n", current->name, current->exit_status);
+	if (current->is_user_process) {
+		const char *name = current->process_name != NULL ?
+		                   current->process_name : current->name;
+		printf ("%s: exit(%d)\n", name, current->exit_status);
+	}
+	free (current->process_name);
+	current->process_name = NULL;
 	if (current->fd_table != NULL || current->executable != NULL) {
 		lock_acquire (&filesys_lock);
 		if (current->fd_table != NULL)
