@@ -124,6 +124,8 @@ static bool
 process_init (void) {
 	struct thread *current = thread_current ();
 	current->is_user_process = true;
+	_Static_assert (FD_COUNT * sizeof (struct process_fd) <= PGSIZE,
+	                "file descriptors must fit in their allocated page");
 	current->fd_table = palloc_get_page (PAL_ZERO);
 	return current->fd_table != NULL;
 }
@@ -258,9 +260,10 @@ __do_fork (void *aux_) {
 	if (success) {
 		lock_acquire (&filesys_lock);
 		for (int fd = 2; fd < FD_COUNT; fd++) {
-			if (parent->fd_table[fd] != NULL) {
-				current->fd_table[fd] = file_duplicate (parent->fd_table[fd]);
-				if (current->fd_table[fd] == NULL) {
+			if (parent->fd_table[fd].file != NULL) {
+				current->fd_table[fd].file = file_duplicate (parent->fd_table[fd].file);
+				current->fd_table[fd].position = parent->fd_table[fd].position;
+				if (current->fd_table[fd].file == NULL) {
 					success = false;
 					break;
 				}
@@ -366,7 +369,7 @@ process_exit (void) {
 		lock_acquire (&filesys_lock);
 		if (current->fd_table != NULL)
 			for (int fd = 2; fd < FD_COUNT; fd++)
-				file_close (current->fd_table[fd]);
+				file_close (current->fd_table[fd].file);
 		file_close (current->executable);
 		current->executable = NULL;
 		lock_release (&filesys_lock);

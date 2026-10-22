@@ -29,6 +29,15 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
+#ifdef USERPROG
+/* The public seek/tell interface uses unsigned positions, while inode
+   offsets remain signed.  Keep the complete position in each descriptor. */
+struct process_fd {
+	struct file *file;
+	uint32_t position;
+};
+#endif
+
 /* A kernel thread or user process.
  *
  * Each thread structure is stored in its own 4 kB page.  The
@@ -116,7 +125,7 @@ struct thread {
 	uint64_t *pml4;                     /* Page map level 4 */
 	struct list children;              /* Owned child-status references. */
 	struct child_status *as_child;      /* This process's exit record. */
-	struct file **fd_table;             /* One separately allocated page. */
+	struct process_fd *fd_table;             /* One separately allocated page. */
 	struct file *executable;            /* Kept open with writes denied. */
 	int exit_status;
 	bool is_user_process;

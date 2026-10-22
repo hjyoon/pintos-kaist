@@ -118,8 +118,8 @@ copy_user_string (const char *user) {
 
 static struct file *
 lookup_file (int fd) {
-	struct file **table = thread_current ()->fd_table;
-	return table != NULL && fd >= 2 && fd < FD_COUNT ? table[fd] : NULL;
+	struct process_fd *table = thread_current ()->fd_table;
+	return table != NULL && fd >= 2 && fd < FD_COUNT ? table[fd].file : NULL;
 }
 
 static int
@@ -130,7 +130,7 @@ sys_open (const char *user) {
 	struct thread *current = thread_current ();
 	int fd;
 	for (fd = 2; fd < FD_COUNT; fd++)
-		if (current->fd_table[fd] == NULL)
+		if (current->fd_table[fd].file == NULL)
 			break;
 	if (fd == FD_COUNT) {
 		palloc_free_page (name);
@@ -142,7 +142,8 @@ sys_open (const char *user) {
 	palloc_free_page (name);
 	if (file == NULL)
 		return -1;
-	current->fd_table[fd] = file;
+	current->fd_table[fd].file = file;
+	current->fd_table[fd].position = 0;
 	return fd;
 }
 
@@ -174,7 +175,8 @@ static void
 sys_close (int fd) {
 	struct file *file = lookup_file (fd);
 	if (file != NULL) {
-		thread_current ()->fd_table[fd] = NULL;
+		thread_current ()->fd_table[fd].file = NULL;
+		thread_current ()->fd_table[fd].position = 0;
 		lock_acquire (&filesys_lock);
 		file_close (file);
 		lock_release (&filesys_lock);
@@ -207,8 +209,18 @@ sys_read (int fd, void *buffer, unsigned size) {
 			for (size_t i = 0; i < chunk; i++)
 				copy[i] = input_getc ();
 			count = chunk;
-		} else
-			count = file_read (file, copy, chunk);
+		} else {
+			struct process_fd *entry = &thread_current ()->fd_table[fd];
+			/* The base filesystem cannot grow beyond signed inode offsets.
+			   An unsigned position past EOF must not be narrowed first. */
+			if (entry->position >= (uint32_t) file_length (file))
+				count = 0;
+			else {
+				count = file_read_at (file, copy, chunk, (off_t) entry->position);
+				if (count > 0)
+					entry->position += count;
+			}
+		}
 		if (count <= 0)
 			break;
 		memcpy ((char *) buffer + total, copy, count);
@@ -246,8 +258,16 @@ sys_write (int fd, const void *buffer, unsigned size) {
 		if (fd == STDOUT_FILENO) {
 			putbuf (copy, chunk);
 			count = chunk;
-		} else
-			count = file_write (file, copy, chunk);
+		} else {
+			struct process_fd *entry = &thread_current ()->fd_table[fd];
+			if (entry->position >= (uint32_t) file_length (file))
+				count = 0;
+			else {
+				count = file_write_at (file, copy, chunk, (off_t) entry->position);
+				if (count > 0)
+					entry->position += count;
+			}
+		}
 		if (count <= 0)
 			break;
 		total += count;
@@ -305,9 +325,10 @@ syscall_handler (struct intr_frame *f) {
 				if (call == SYS_FILESIZE)
 					f->R.rax = file_length (file);
 				else if (call == SYS_TELL)
-					f->R.rax = file_tell (file);
-				else if ((unsigned) f->R.rsi <= INT32_MAX)
-					file_seek (file, (unsigned) f->R.rsi);
+					f->R.rax = thread_current ()->fd_table[(int) f->R.rdi].position;
+				else
+					thread_current ()->fd_table[(int) f->R.rdi].position =
+						(unsigned) f->R.rsi;
 				lock_release (&filesys_lock);
 			}
 			break;
