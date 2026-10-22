@@ -7,6 +7,8 @@
 
 /* NOTE: The beginning where custom code is added */
 #include "threads/palloc.h"
+#include "threads/mmu.h"
+#include "threads/pte.h"
 #include <string.h>
 /* NOTE: The end where custom code is added */
 
@@ -43,152 +45,75 @@ syscall_init (void) {
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
 }
 
-/* The main system call interface */
-// void
-// syscall_handler (struct intr_frame *f UNUSED) {
-// 	// TODO: Your implementation goes here.
-// 	printf ("system call!\n");
-// 	thread_exit ();
-// }
+/* Reject invalid user ranges before allocating resources or dereferencing
+   user pointers.  A zero-length range does not access its pointer. */
+bool
+user_buffer_valid (const void *buffer, size_t size, bool writable) {
+	if (size == 0)
+		return true;
 
-const char* syscall_name(int syscall_number) {
-    switch (syscall_number) {
-        case SYS_HALT:
-            return "halt";
-        case SYS_EXIT:
-            return "exit";
-        case SYS_EXEC:
-            return "exec";
-        case SYS_WAIT:
-            return "wait";
-        case SYS_CREATE:
-            return "create";
-        case SYS_REMOVE:
-            return "remove";
-        case SYS_OPEN:
-            return "open";
-        case SYS_FILESIZE:
-            return "filesize";
-        case SYS_READ:
-            return "read";
-        case SYS_WRITE:
-            return "write";
-        case SYS_SEEK:
-            return "seek";
-        case SYS_TELL:
-            return "tell";
-        case SYS_CLOSE:
-            return "close";
-        default:
-            return "unknown";
-    }
-}
-
-/* verify_user_buffer: function to validate user buffer */
-bool verify_user_buffer(const void *buffer, unsigned size) {
-	if (buffer == NULL) {
+	uintptr_t start = (uintptr_t) buffer;
+	if (buffer == NULL || !is_user_vaddr (buffer) || size > KERN_BASE - start)
 		return false;
-	}
 
-	/* Check within the user address space */
-	if (!is_user_vaddr(buffer)) {
+	uint64_t *pml4 = thread_current ()->pml4;
+	if (pml4 == NULL)
 		return false;
-	}
-
-	/* Check if each byte is mapped */
-	for (unsigned i = 0; i < size; i++) {
-		void *addr = (void *) ((uintptr_t) buffer + i);
-		if (!is_user_vaddr(addr) || pml4_get_page(thread_current()->pml4, addr) == NULL) {
+	uintptr_t last_page = (uintptr_t) pg_round_down (start + size - 1);
+	for (uintptr_t page = (uintptr_t) pg_round_down (start);;
+	     page += PGSIZE) {
+		uint64_t *pte = pml4e_walk (pml4, page, 0);
+		if (pte == NULL || (*pte & (PTE_P | PTE_U)) != (PTE_P | PTE_U) ||
+		    (writable && (*pte & PTE_W) == 0))
 			return false;
-		}
+		if (page == last_page)
+			return true;
 	}
-
-	return true;
 }
 
-/* copy_user_buffer: function to safely copy user buffer to kernel buffer */
-bool copy_user_buffer(const void *user_buffer, void *kernel_buffer, unsigned size) {
-	/* In actual implementation, exception handling is required to prevent page faults */
-	memcpy(kernel_buffer, user_buffer, size);
-	return true;
+/* Both system calls and user exceptions use the same exit path. */
+void
+syscall_exit (int status) {
+	thread_current ()->exit_status = status;
+	thread_exit ();
 }
 
-int sys_write(int fd, const void *buffer, unsigned size) {
-	if (fd != STDOUT_FILENO) {
+static int
+sys_write (int fd, const void *buffer, unsigned size) {
+	if (!user_buffer_valid (buffer, size, false))
+		syscall_exit (-1);
+	if (fd != STDOUT_FILENO)
 		return -1;
-	}
+	if (size == 0)
+		return 0;
 
-	if (!verify_user_buffer(buffer, size)) {
+	/* Reuse one page for arbitrarily sized, validated user buffers. */
+	char *copy = palloc_get_page (0);
+	if (copy == NULL)
 		return -1;
+	for (size_t offset = 0; offset < size;) {
+		size_t chunk = size - offset;
+		if (chunk > PGSIZE)
+			chunk = PGSIZE;
+		memcpy (copy, (const char *) buffer + offset, chunk);
+		putbuf (copy, chunk);
+		offset += chunk;
 	}
-
-	/* Allocate kernel buffer */
-	char *kernel_buffer = palloc_get_page(PAL_ZERO);
-	if (kernel_buffer == NULL) {
-		return -1; // Memory allocation failed
-	}
-
-	/* Copy user buffer to kernel buffer */
-	if (!copy_user_buffer(buffer, kernel_buffer, size)) {
-		palloc_free_page(kernel_buffer);
-		return -1; // Copy failed
-	}
-
-	/* Output data to console */
-	putbuf(kernel_buffer, size);
-
-	/* Free kernel buffer */
-	palloc_free_page(kernel_buffer);
-
-	/* Return the number of bytes actually written */
+	palloc_free_page (copy);
 	return size;
 }
 
-void syscall_handler(struct intr_frame *f) {
-	// TODO: Your implementation goes here.
-	// printf ("system call!\n");
-
-    /* Extract system call number */
-    int syscall_number = f->R.rax;
-
-    /* Extract system call name */
-    const char* name = syscall_name(syscall_number);
-
-    /* Extract caller's RIP (program counter) */
-    uintptr_t caller_rip = f->rip;
-
-    /* Print system call information */
-    // printf("System Call Invoked: %s (%d) from RIP: 0x%016lx\n", name, syscall_number, caller_rip);
-
-    /* Processing according to system call number */
-    switch (syscall_number) {
-        case SYS_EXIT:
-            {
-                /* In exit(status), status is passed to rdi */
-                thread_current()->exit_status = (int) f->R.rdi;
-                // printf("Process %s exiting with status %d\n", thread_current()->name, status);
-				// printf("%s: exit(%d)\n", thread_current()->name, status);
-                thread_exit();
-            }
-            break;
-
+void
+syscall_handler (struct intr_frame *f) {
+	switch (f->R.rax) {
+		case SYS_EXIT:
+			syscall_exit ((int) f->R.rdi);
 		case SYS_WRITE:
-            {
-                int fd = (int) f->R.rdi; // file descriptor
-                const void *buffer = (const void *) f->R.rsi; // data buffer
-                unsigned size = (unsigned) f->R.rdx;  // data size
-
-                int bytes_written = sys_write(fd, buffer, size);
-
-                /* Set return value */
-                f->R.rax = bytes_written;
-            }
-            break;
-
-        /* Handling other system calls */
-
-        default:
-            // printf("Unknown system call: %d\n", syscall_number);
-            thread_exit();
-    }
+			f->R.rax = sys_write ((int) f->R.rdi,
+			                     (const void *) f->R.rsi,
+			                     (unsigned) f->R.rdx);
+			break;
+		default:
+			syscall_exit (-1);
+	}
 }

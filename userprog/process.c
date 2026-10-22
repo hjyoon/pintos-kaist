@@ -238,10 +238,14 @@ process_exec (void *f_name) {
 
 	process_cleanup ();
 	strlcpy (thread_current ()->name, argv[0], sizeof thread_current ()->name);
-	if (!load (argv[0], &_if) || !setup_arguments (argc, argv, &_if.rsp)) {
+	bool loaded = load (argv[0], &_if);
+	/* Avoid passing the address of a packed integer field as void **. */
+	void *stack_pointer = (void *) _if.rsp;
+	if (!loaded || !setup_arguments (argc, argv, &stack_pointer)) {
 		process_cleanup ();
 		goto error;
 	}
+	_if.rsp = (uintptr_t) stack_pointer;
 
 	_if.R.rdi = argc;
 	_if.R.rsi = (uintptr_t) _if.rsp + sizeof (void *);
@@ -294,6 +298,9 @@ process_exit(void) {
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
 
+    /* Print once, before cleanup removes the user page table. */
+    if (curr->pml4 != NULL)
+        printf ("%s: exit(%d)\n", curr->name, curr->exit_status);
     process_cleanup();
 
 	/* NOTE: The beginning where custom code is added */

@@ -2,6 +2,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include "userprog/gdt.h"
+#include "userprog/syscall.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "intrinsic.h"
@@ -81,12 +82,8 @@ kill (struct intr_frame *f) {
 	   exception originated. */
 	switch (f->cs) {
 		case SEL_UCSEG:
-			/* User's code segment, so it's a user exception, as we
-			   expected.  Kill the user process.  */
-			printf ("%s: dying due to interrupt %#04llx (%s).\n",
-					thread_name (), f->vec_no, intr_name (f->vec_no));
-			intr_dump_frame (f);
-			thread_exit ();
+			/* Report the termination through process_exit(), once. */
+			syscall_exit (-1);
 
 		case SEL_KCSEG:
 			/* Kernel's code segment, which indicates a kernel bug.
@@ -101,7 +98,7 @@ kill (struct intr_frame *f) {
 			   kernel. */
 			printf ("Interrupt %#04llx (%s) in unknown segment %04x\n",
 					f->vec_no, intr_name (f->vec_no), f->cs);
-			thread_exit ();
+			syscall_exit (-1);
 	}
 }
 
@@ -149,37 +146,11 @@ page_fault (struct intr_frame *f) {
 	/* Count page faults. */
 	page_fault_cnt++;
 
-	/* If the fault is true fault, show info and exit. */
-	// printf ("Page fault at %p: %s error %s page in %s context.\n",
-	// 		fault_addr,
-	// 		not_present ? "not present" : "rights violation",
-	// 		write ? "writing" : "reading",
-	// 		user ? "user" : "kernel");
-
-	/* NOTE: The beginning where custom code is added */
-	/* Handle if user page fault */
-    if (user) {
-        struct thread *t = thread_current ();
-
-        /* Re-verify if the address where the page fault occurred is valid */
-        if (!is_user_vaddr (fault_addr) || pml4_get_page (t->pml4, fault_addr) == NULL) {
-            /* Invalid access: user program terminated */
-            // printf ("%s: invalid page access at %p\n", t->name, fault_addr);
-			t->exit_status = -1;
-            thread_exit ();
-        }
-
-        /* Valid access: allocate or load page if necessary */
-        /* The current implementation simply terminates without handling the page fault */
-        // printf ("%s: page access at %p\n", t->name, fault_addr);
-		t->exit_status = -1;
-        thread_exit ();
-    }
-    else {
-        PANIC ("Page fault in kernel");
-    }
-	/* NOTE: The end where custom code is added */
-
-	kill (f);
+	/* User faults terminate only the offending process.  System calls
+	   prevalidate user memory, so an unhandled kernel fault is a bug. */
+	if (user)
+		syscall_exit (-1);
+	PANIC ("Kernel page fault at %p (%s, %s)", fault_addr,
+	       not_present ? "not present" : "protection violation",
+	       write ? "write" : "read");
 }
-
