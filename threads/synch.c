@@ -246,10 +246,17 @@ lock_held_by_current_thread (const struct lock *lock) {
 struct semaphore_elem {
 	struct list_elem elem;              /* List element. */
 	struct semaphore semaphore;         /* This semaphore. */
-	/* NOTE: The beginning where custom code is added */
-	int priority;						/* Priority. */
-	/* NOTE: The end where custom code is added */
+	struct thread *thread;              /* Waiter, including before sema_down. */
 };
+
+/* Use the live effective priority, not a snapshot from cond_wait(). */
+static bool
+cond_priority_less (const struct list_elem *a,
+                    const struct list_elem *b, void *aux UNUSED) {
+	const struct semaphore_elem *wa = list_entry (a, struct semaphore_elem, elem);
+	const struct semaphore_elem *wb = list_entry (b, struct semaphore_elem, elem);
+	return wa->thread->priority > wb->thread->priority;
+}
 
 /* Initializes condition variable COND.  A condition variable
    allows one piece of code to signal a condition and cooperating
@@ -291,14 +298,8 @@ cond_wait (struct condition *cond, struct lock *lock) {
 	ASSERT (lock_held_by_current_thread (lock));
 
 	sema_init (&waiter.semaphore, 0);
-
-	/* NOTE: The beginning where custom code is added */
-	/* Save priority of current thread */
-	waiter.priority = thread_get_priority();
-	/* Insert waiters in priority order */
-    list_insert_ordered(&cond->waiters, &waiter.elem, cond_priority_less, NULL);
-	/* NOTE: The end where custom code is added */
-
+	waiter.thread = thread_current ();
+	list_push_back (&cond->waiters, &waiter.elem);
 	lock_release (lock);
 	sema_down (&waiter.semaphore);
 	lock_acquire (lock);
@@ -318,9 +319,14 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED) {
 	ASSERT (!intr_context ());
 	ASSERT (lock_held_by_current_thread (lock));
 
-	if (!list_empty (&cond->waiters))
-		sema_up (&list_entry (list_pop_front (&cond->waiters),
-					struct semaphore_elem, elem)->semaphore);
+	enum intr_level old_level = intr_disable ();
+	if (!list_empty (&cond->waiters)) {
+		struct list_elem *e = list_min (&cond->waiters,
+		                               cond_priority_less, NULL);
+		list_remove (e);
+		sema_up (&list_entry (e, struct semaphore_elem, elem)->semaphore);
+	}
+	intr_set_level (old_level);
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by
@@ -337,11 +343,3 @@ cond_broadcast (struct condition *cond, struct lock *lock) {
 	while (!list_empty (&cond->waiters))
 		cond_signal (cond, lock);
 }
-
-/* NOTE: The beginning where custom code is added */
-bool cond_priority_less(const struct list_elem *a, const struct list_elem *b, void *aux) {
-    struct semaphore_elem* sema_a = list_entry(a, struct semaphore_elem, elem);
-    struct semaphore_elem* sema_b = list_entry(b, struct semaphore_elem, elem);
-    return sema_a->priority > sema_b->priority;
-}
-/* NOTE: The end where custom code is added */
