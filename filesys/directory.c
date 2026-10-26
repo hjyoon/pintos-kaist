@@ -205,15 +205,25 @@ dir_remove (struct dir *dir, const char *name) {
 	ASSERT (name != NULL);
 
 	/* Find directory entry. */
-	if (!lookup (dir, name, &e, &ofs))
+	if (inode_is_removed (dir->inode) || !strcmp (name, ".") ||
+	    !strcmp (name, "..") || !lookup (dir, name, &e, &ofs))
 		goto done;
 
 	/* Open inode. */
 	inode = inode_open (e.inode_sector);
-	if (inode == NULL || inode_is_directory (inode))
+	if (inode == NULL)
 		goto done;
 
-	/* Directory deletion is implemented in the subdirectories stage. */
+	if (inode_is_directory (inode)) {
+		/* Open directories may be unlinked, but must first be empty. The
+		   inode stays allocated until its last descriptor or CWD closes. */
+		char child[NAME_MAX + 1];
+		off_t position = 0;
+		if (inode_get_inumber (inode) == inode_get_parent (inode) ||
+		    dir_read_next (inode, &position, child))
+			goto done;
+	}
+
 	/* Erase directory entry. */
 	e.in_use = false;
 	if (inode_write_at (dir->inode, &e, sizeof e, ofs) != sizeof e)
@@ -233,11 +243,20 @@ done:
  * contains no more entries. */
 bool
 dir_readdir (struct dir *dir, char name[NAME_MAX + 1]) {
+	return dir_read_next (dir->inode, &dir->pos, name);
+}
+
+/* Descriptors keep their own cursor, shared by dup2 aliases and copied on
+   fork. CWD handles never need to share a descriptor's enumeration state. */
+bool
+dir_read_next (struct inode *inode, off_t *position, char name[NAME_MAX + 1]) {
 	struct dir_entry e;
 
-	while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e) {
-		dir->pos += sizeof e;
-		if (e.in_use) {
+	if (!inode_is_directory (inode) || inode_is_removed (inode))
+		return false;
+	while (inode_read_at (inode, &e, sizeof e, *position) == sizeof e) {
+		*position += sizeof e;
+		if (e.in_use && strcmp (e.name, ".") && strcmp (e.name, "..")) {
 			strlcpy (name, e.name, NAME_MAX + 1);
 			return true;
 		}

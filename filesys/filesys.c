@@ -147,11 +147,46 @@ filesys_remove (const char *name) {
 	struct dir *dir = dir_resolve_parent (name, leaf);
 	struct inode *inode = NULL;
 	bool success = dir != NULL && strcmp (leaf, ".") && strcmp (leaf, "..") &&
-	               name[strlen (name) - 1] != '/' && dir_lookup (dir, leaf, &inode) &&
-	               !inode_is_directory (inode) && dir_remove (dir, leaf);
+	               dir_lookup (dir, leaf, &inode) &&
+	               (name[strlen (name) - 1] != '/' || inode_is_directory (inode)) &&
+	               dir_remove (dir, leaf);
 	inode_close (inode);
 	dir_close (dir);
 	return success;
+}
+
+/* Publish a typed directory only after its inode and parent metadata have
+   been initialized. Failed publication releases both metadata and data. */
+bool
+filesys_mkdir (const char *name) {
+#ifdef EFILESYS
+	char leaf[NAME_MAX + 1];
+	struct dir *parent = dir_resolve_parent (name, leaf);
+	if (parent == NULL)
+		return false;
+	struct inode *existing = NULL;
+	if (!strcmp (leaf, ".") || !strcmp (leaf, "..") ||
+	    dir_lookup (parent, leaf, &existing)) {
+		inode_close (existing);
+		dir_close (parent);
+		return false;
+	}
+	cluster_t cluster = fat_create_chain (0);
+	bool created = cluster != 0 &&
+	               dir_create_at (cluster_to_sector (cluster), 16,
+	                              inode_get_inumber (dir_get_inode (parent)));
+	bool success = created && dir_add (parent, leaf, cluster_to_sector (cluster));
+	if (!success && cluster != 0) {
+		if (created)
+			inode_discard (cluster_to_sector (cluster));
+		else
+			fat_remove_chain (cluster, 0);
+	}
+	dir_close (parent);
+	return success;
+#else
+	return false;
+#endif
 }
 
 /* Replace CWD only after the entire destination path has been resolved. */

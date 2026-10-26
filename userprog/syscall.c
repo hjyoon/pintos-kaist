@@ -8,6 +8,7 @@
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 #include "filesys/inode.h"
+#include "filesys/directory.h"
 #include "devices/input.h"
 #include "userprog/process.h"
 
@@ -225,6 +226,32 @@ sys_dup2 (int oldfd, int newfd) {
 	return newfd;
 }
 
+#ifdef EFILESYS
+static bool
+sys_readdir (int fd, char *user_name) {
+	if (!user_buffer_valid (user_name, NAME_MAX + 1, true))
+		syscall_exit (-1);
+	struct process_fd *entry = lookup_fd (fd);
+	if (entry == NULL || entry->file == NULL)
+		return false;
+	char name[NAME_MAX + 1] = {0};
+	lock_acquire (&filesys_lock);
+	off_t position = entry->position;
+	bool success = dir_read_next (file_get_inode (entry->file), &position, name);
+	entry->position = position;
+	lock_release (&filesys_lock);
+	if (success) {
+#ifdef VM
+		if (!vm_copy_user (name, user_name, sizeof name, true))
+			syscall_exit (-1);
+#else
+		memcpy (user_name, name, sizeof name);
+#endif
+	}
+	return success;
+}
+#endif
+
 /* Validate the whole range before allocating a bounce page or taking a
    filesystem lock.  Transfers use bounded chunks rather than malloc(size). */
 static int
@@ -376,14 +403,32 @@ syscall_handler (struct intr_frame *f) {
 			f->R.rax = sys_open ((const char *) f->R.rdi);
 			break;
 #ifdef EFILESYS
-		case SYS_CHDIR: {
+		case SYS_CHDIR:
+		case SYS_MKDIR: {
+			bool make_directory = f->R.rax == SYS_MKDIR;
 			char *path = copy_user_string ((const char *) f->R.rdi);
 			f->R.rax = false;
 			if (path != NULL) {
 				lock_acquire (&filesys_lock);
-				f->R.rax = filesys_chdir (path);
+				f->R.rax = make_directory ? filesys_mkdir (path) : filesys_chdir (path);
 				lock_release (&filesys_lock);
 				palloc_free_page (path);
+			}
+			break;
+		}
+		case SYS_READDIR:
+			f->R.rax = sys_readdir ((int) f->R.rdi, (char *) f->R.rsi);
+			break;
+		case SYS_ISDIR:
+		case SYS_INUMBER: {
+			bool get_number = f->R.rax == SYS_INUMBER;
+			struct process_fd *entry = lookup_fd ((int) f->R.rdi);
+			f->R.rax = get_number ? -1 : 0;
+			if (entry != NULL && entry->file != NULL) {
+				lock_acquire (&filesys_lock);
+				struct inode *inode = file_get_inode (entry->file);
+				f->R.rax = get_number ? inode_get_inumber (inode) : inode_is_directory (inode);
+				lock_release (&filesys_lock);
 			}
 			break;
 		}
