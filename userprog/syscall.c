@@ -355,6 +355,20 @@ syscall_handler (struct intr_frame *f) {
 		case SYS_OPEN:
 			f->R.rax = sys_open ((const char *) f->R.rdi);
 			break;
+#ifdef VM
+		case SYS_MMAP: {
+			struct file *file = lookup_file ((int) f->R.r10);
+			if (f->R.r8 > INT32_MAX)
+				f->R.rax = 0;
+			else
+				f->R.rax = (uintptr_t) do_mmap ((void *) f->R.rdi, f->R.rsi,
+				                              (int) f->R.rdx, file, (off_t) f->R.r8);
+			break;
+		}
+		case SYS_MUNMAP:
+			do_munmap ((void *) f->R.rdi);
+			break;
+#endif
 		case SYS_DUP2:
 			f->R.rax = sys_dup2 ((int) f->R.rdi, (int) f->R.rsi);
 			break;

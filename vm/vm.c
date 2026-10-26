@@ -61,13 +61,16 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 	if (upage == NULL || !is_user_vaddr (upage) || pg_ofs (upage) != 0 ||
 	    !spt->initialized || spt_find_page (spt, upage) != NULL)
 		return false;
-	/* File-backed pages are enabled in the mmap stage. */
-	if (VM_TYPE (type) != VM_ANON)
-		return false;
+	bool (*initializer) (struct page *, enum vm_type, void *);
+	switch (VM_TYPE (type)) {
+		case VM_ANON: initializer = anon_initializer; break;
+		case VM_FILE: initializer = file_backed_initializer; break;
+		default: return false;
+	}
 	struct page *page = malloc (sizeof *page);
 	if (page == NULL)
 		return false;
-	uninit_new (page, upage, init, type, aux, anon_initializer);
+	uninit_new (page, upage, init, type, aux, initializer);
 	page->writable = writable;
 	if (!spt_insert_page (spt, page)) {
 		/* On failure the caller still owns AUX. */
@@ -323,13 +326,44 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 				return false;
 			}
 		} else {
-			if (page_get_type (source) != VM_ANON || source->frame == NULL ||
-			    !vm_alloc_page (VM_ANON, source->va, source->writable) ||
-			    !vm_claim_page (source->va))
+			enum vm_type type = page_get_type (source);
+			struct lazy_load_info *info = NULL;
+			if (type == VM_FILE) {
+				info = malloc (sizeof *info);
+				if (info == NULL)
+					return false;
+				lock_acquire (&filesys_lock);
+				info->file = file_reopen (source->file.file);
+				lock_release (&filesys_lock);
+				info->offset = source->file.offset;
+				info->read_bytes = source->file.read_bytes;
+				if (info->file == NULL) {
+					free (info);
+					return false;
+				}
+			}
+			if (source->frame == NULL ||
+			    !vm_alloc_page_with_initializer (type, source->va,
+			                                    source->writable, NULL, info)) {
+				if (info != NULL) {
+					lock_acquire (&filesys_lock);
+					file_close (info->file);
+					lock_release (&filesys_lock);
+					free (info);
+				}
+				return false;
+			}
+			if (!vm_claim_page (source->va))
 				return false;
 			struct page *copy = spt_find_page (dst, source->va);
 			memcpy (copy->frame->kva, source->frame->kva, PGSIZE);
+			if (type == VM_FILE)
+				pml4_set_dirty (copy->frame->pml4, copy->va,
+				                pml4_is_dirty (source->frame->pml4, source->va));
 		}
+		struct page *copy = spt_find_page (dst, source->va);
+		copy->mapping_start = source->mapping_start;
+		copy->mapping_pages = source->mapping_pages;
 	}
 	return true;
 }

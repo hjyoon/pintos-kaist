@@ -48,6 +48,8 @@ struct page {
 
 	bool writable;         /* Original mapping permissions. */
 	struct hash_elem spt_elem;
+	void *mapping_start;   /* NULL for pages outside mmap regions. */
+	size_t mapping_pages;  /* Region size, stored on its first page. */
 
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
