@@ -6,6 +6,9 @@
 #include "filesys/filesys.h"
 #include "filesys/free-map.h"
 #include "threads/malloc.h"
+#ifdef EFILESYS
+#include "filesys/fat.h"
+#endif
 
 /* Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
@@ -13,7 +16,7 @@
 /* On-disk inode.
  * Must be exactly DISK_SECTOR_SIZE bytes long. */
 struct inode_disk {
-	disk_sector_t start;                /* First data sector. */
+	disk_sector_t start;                /* FAT cluster, or legacy data sector. */
 	off_t length;                       /* File size in bytes. */
 	unsigned magic;                     /* Magic number. */
 	uint32_t unused[125];               /* Not used. */
@@ -23,7 +26,7 @@ struct inode_disk {
  * bytes long. */
 static inline size_t
 bytes_to_sectors (off_t size) {
-	return DIV_ROUND_UP (size, DISK_SECTOR_SIZE);
+	return DIV_ROUND_UP ((size_t) size, DISK_SECTOR_SIZE);
 }
 
 /* In-memory inode. */
@@ -34,6 +37,10 @@ struct inode {
 	bool removed;                       /* True if deleted, false otherwise. */
 	int deny_write_cnt;                 /* 0: writes ok, >0: deny writes. */
 	struct inode_disk data;             /* Inode content. */
+#ifdef EFILESYS
+	cluster_t cached_cluster;          /* Sequential chain traversal hint. */
+	size_t cached_index;
+#endif
 };
 
 /* Returns the disk sector that contains byte offset POS within
@@ -41,12 +48,30 @@ struct inode {
  * Returns -1 if INODE does not contain data for a byte at offset
  * POS. */
 static disk_sector_t
-byte_to_sector (const struct inode *inode, off_t pos) {
+byte_to_sector (struct inode *inode, off_t pos) {
 	ASSERT (inode != NULL);
-	if (pos < inode->data.length)
-		return inode->data.start + pos / DISK_SECTOR_SIZE;
-	else
-		return -1;
+	if (pos < 0 || pos >= inode->data.length)
+		return (disk_sector_t) -1;
+#ifdef EFILESYS
+	size_t target = pos / DISK_SECTOR_SIZE;
+	cluster_t cluster = inode->data.start;
+	size_t index = 0;
+	if (inode->cached_cluster != 0 && inode->cached_index <= target) {
+		cluster = inode->cached_cluster;
+		index = inode->cached_index;
+	}
+	while (index < target) {
+		cluster = fat_get (cluster);
+		if (cluster == 0 || cluster == EOChain)
+			return (disk_sector_t) -1;
+		index++;
+	}
+	inode->cached_cluster = cluster;
+	inode->cached_index = target;
+	return cluster_to_sector (cluster);
+#else
+	return inode->data.start + pos / DISK_SECTOR_SIZE;
+#endif
 }
 
 /* List of open inodes, so that opening a single inode twice
@@ -80,6 +105,25 @@ inode_create (disk_sector_t sector, off_t length) {
 		size_t sectors = bytes_to_sectors (length);
 		disk_inode->length = length;
 		disk_inode->magic = INODE_MAGIC;
+#ifdef EFILESYS
+		cluster_t tail = 0;
+		static const char zeros[DISK_SECTOR_SIZE];
+		size_t allocated = 0;
+		for (; allocated < sectors; allocated++) {
+			cluster_t next = fat_create_chain (tail);
+			if (next == 0)
+				break;
+			if (disk_inode->start == 0)
+				disk_inode->start = next;
+			tail = next;
+			disk_write (filesys_disk, cluster_to_sector (next), zeros);
+		}
+		if (allocated == sectors) {
+			disk_write (filesys_disk, sector, disk_inode);
+			success = true;
+		} else
+			fat_remove_chain (disk_inode->start, 0);
+#else
 		if (free_map_allocate (sectors, &disk_inode->start)) {
 			disk_write (filesys_disk, sector, disk_inode);
 			if (sectors > 0) {
@@ -91,6 +135,7 @@ inode_create (disk_sector_t sector, off_t length) {
 			}
 			success = true; 
 		} 
+#endif
 		free (disk_inode);
 	}
 	return success;
@@ -126,6 +171,16 @@ inode_open (disk_sector_t sector) {
 	inode->deny_write_cnt = 0;
 	inode->removed = false;
 	disk_read (filesys_disk, inode->sector, &inode->data);
+#ifdef EFILESYS
+	if (inode->data.magic != INODE_MAGIC || inode->data.length < 0 ||
+	    (inode->data.length > 0 && inode->data.start == 0)) {
+		list_remove (&inode->elem);
+		free (inode);
+		return NULL;
+	}
+	inode->cached_cluster = inode->data.start;
+	inode->cached_index = 0;
+#endif
 	return inode;
 }
 
@@ -159,9 +214,14 @@ inode_close (struct inode *inode) {
 
 		/* Deallocate blocks if removed. */
 		if (inode->removed) {
+#ifdef EFILESYS
+			fat_remove_chain (inode->data.start, 0);
+			fat_remove_chain (sector_to_cluster (inode->sector), 0);
+#else
 			free_map_release (inode->sector, 1);
 			free_map_release (inode->data.start,
-					bytes_to_sectors (inode->data.length)); 
+					bytes_to_sectors (inode->data.length));
+#endif
 		}
 
 		free (inode); 
@@ -311,3 +371,15 @@ off_t
 inode_length (const struct inode *inode) {
 	return inode->data.length;
 }
+
+#ifdef EFILESYS
+/* Discard a newly created inode that could not be linked into a directory. */
+void
+inode_discard (disk_sector_t sector) {
+	struct inode_disk disk_inode;
+	disk_read (filesys_disk, sector, &disk_inode);
+	ASSERT (disk_inode.magic == INODE_MAGIC);
+	fat_remove_chain (disk_inode.start, 0);
+	fat_remove_chain (sector_to_cluster (sector), 0);
+}
+#endif
