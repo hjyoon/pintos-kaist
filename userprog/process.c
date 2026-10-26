@@ -147,6 +147,10 @@ static bool
 process_init (void) {
 	struct thread *current = thread_current ();
 	current->is_user_process = true;
+#ifdef VM
+	if (!current->spt.initialized)
+		return false;
+#endif
 	_Static_assert (FD_COUNT * sizeof (struct process_fd *) <= PGSIZE,
 	                "file descriptors must fit in their allocated page");
 	current->fd_table = palloc_get_page (PAL_ZERO);
@@ -441,6 +445,7 @@ process_exit (void) {
 	}
 	free (current->process_name);
 	current->process_name = NULL;
+	process_cleanup ();
 	if (current->fd_table != NULL || current->executable != NULL) {
 		lock_acquire (&filesys_lock);
 		if (current->fd_table != NULL)
@@ -452,7 +457,6 @@ process_exit (void) {
 		palloc_free_page (current->fd_table);
 		current->fd_table = NULL;
 	}
-	process_cleanup ();
 	while (!list_empty (&current->children)) {
 		struct child_status *status = list_entry (list_pop_front (&current->children),
 		                                         struct child_status, elem);
@@ -829,9 +833,13 @@ install_page (void *upage, void *kpage, bool writable) {
 
 static bool
 lazy_load_segment (struct page *page, void *aux) {
-	/* TODO: Load the segment from the file */
-	/* TODO: This called when the first page fault occurs on address VA. */
-	/* TODO: VA is available when calling this function. */
+	struct lazy_load_info *info = aux;
+	lock_acquire (&filesys_lock);
+	bool success = file_read_at (info->file, page->frame->kva,
+	                            info->read_bytes, info->offset) ==
+	               (off_t) info->read_bytes;
+	lock_release (&filesys_lock);
+	return success;
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -862,16 +870,26 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-		/* TODO: Set up aux to pass information to the lazy_load_segment. */
-		void *aux = NULL;
-		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
-					writable, lazy_load_segment, aux))
+		/* load() holds filesys_lock. Each pending page owns its backing ref. */
+		struct lazy_load_info *aux = malloc (sizeof *aux);
+		if (aux == NULL)
 			return false;
+		aux->file = file_reopen (file);
+		aux->offset = ofs;
+		aux->read_bytes = page_read_bytes;
+		if (aux->file == NULL ||
+		    !vm_alloc_page_with_initializer (VM_ANON, upage,
+		                                    writable, lazy_load_segment, aux)) {
+			file_close (aux->file);
+			free (aux);
+			return false;
+		}
 
 		/* Advance. */
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
 		upage += PGSIZE;
+		ofs += page_read_bytes;
 	}
 	return true;
 }
@@ -879,14 +897,11 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a PAGE of stack at the USER_STACK. Return true on success. */
 static bool
 setup_stack (struct intr_frame *if_) {
-	bool success = false;
-	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
-
-	/* TODO: Map the stack on stack_bottom and claim the page immediately.
-	 * TODO: If success, set the rsp accordingly.
-	 * TODO: You should mark the page is stack. */
-	/* TODO: Your code goes here */
-
-	return success;
+	void *bottom = (uint8_t *) USER_STACK - PGSIZE;
+	if (!vm_alloc_page (VM_ANON | VM_MARKER_0, bottom, true) ||
+	    !vm_claim_page (bottom))
+		return false;
+	if_->rsp = USER_STACK;
+	return true;
 }
 #endif /* VM */

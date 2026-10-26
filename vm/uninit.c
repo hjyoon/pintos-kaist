@@ -10,6 +10,8 @@
 
 #include "vm/vm.h"
 #include "vm/uninit.h"
+#include "threads/malloc.h"
+#include "userprog/syscall.h"
 
 static bool uninit_initialize (struct page *page, void *kva);
 static void uninit_destroy (struct page *page);
@@ -51,9 +53,21 @@ uninit_initialize (struct page *page, void *kva) {
 	vm_initializer *init = uninit->init;
 	void *aux = uninit->aux;
 
-	/* TODO: You may need to fix this function. */
-	return uninit->page_initializer (page, uninit->type, kva) &&
-		(init ? init (page, aux) : true);
+	enum vm_type type = uninit->type;
+	bool (*initializer) (struct page *, enum vm_type, void *) =
+		uninit->page_initializer;
+	bool success = initializer (page, type, kva) &&
+	               (init == NULL || init (page, aux));
+	if (aux != NULL) {
+		struct lazy_load_info *info = aux;
+		lock_acquire (&filesys_lock);
+		file_close (info->file);
+		lock_release (&filesys_lock);
+		free (info);
+	}
+	if (page->operations->type == VM_UNINIT)
+		page->uninit.aux = NULL;
+	return success;
 }
 
 /* Free the resources hold by uninit_page. Although most of pages are transmuted
@@ -62,7 +76,11 @@ uninit_initialize (struct page *page, void *kva) {
  * PAGE will be freed by the caller. */
 static void
 uninit_destroy (struct page *page) {
-	struct uninit_page *uninit UNUSED = &page->uninit;
-	/* TODO: Fill this function.
-	 * TODO: If you don't have anything to do, just return. */
+	struct lazy_load_info *info = page->uninit.aux;
+	if (info != NULL) {
+		lock_acquire (&filesys_lock);
+		file_close (info->file);
+		lock_release (&filesys_lock);
+		free (info);
+	}
 }

@@ -71,6 +71,12 @@ user_buffer_valid (const void *buffer, size_t size, bool writable) {
 	uintptr_t last_page = (uintptr_t) pg_round_down (start + size - 1);
 	for (uintptr_t page = (uintptr_t) pg_round_down (start);;
 	     page += PGSIZE) {
+#ifdef VM
+		struct page *entry = spt_find_page (&thread_current ()->spt, (void *) page);
+		if (entry == NULL || (writable && !entry->writable) ||
+		    !vm_claim_page ((void *) page))
+			return false;
+#endif
 		uint64_t *pte = pml4e_walk (pml4, page, 0);
 		if (pte == NULL || (*pte & (PTE_P | PTE_U)) != (PTE_P | PTE_U) ||
 		    (writable && (*pte & PTE_W) == 0))

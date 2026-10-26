@@ -6,6 +6,8 @@
 #include "threads/mmu.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include <string.h>
+#include "userprog/syscall.h"
 
 static struct list frames;
 static struct lock frames_lock;
@@ -55,20 +57,24 @@ bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
 
-	ASSERT (VM_TYPE(type) != VM_UNINIT);
-
 	struct supplemental_page_table *spt = &thread_current ()->spt;
-
-	/* Check wheter the upage is already occupied or not. */
-	if (spt_find_page (spt, upage) == NULL) {
-		/* TODO: Create the page, fetch the initialier according to the VM type,
-		 * TODO: and then create "uninit" page struct by calling uninit_new. You
-		 * TODO: should modify the field after calling the uninit_new. */
-
-		/* TODO: Insert the page into the spt. */
+	if (upage == NULL || !is_user_vaddr (upage) || pg_ofs (upage) != 0 ||
+	    !spt->initialized || spt_find_page (spt, upage) != NULL)
+		return false;
+	/* File-backed pages are enabled in the mmap stage. */
+	if (VM_TYPE (type) != VM_ANON)
+		return false;
+	struct page *page = malloc (sizeof *page);
+	if (page == NULL)
+		return false;
+	uninit_new (page, upage, init, type, aux, anon_initializer);
+	page->writable = writable;
+	if (!spt_insert_page (spt, page)) {
+		/* On failure the caller still owns AUX. */
+		free (page);
+		return false;
 	}
-err:
-	return false;
+	return true;
 }
 
 /* Hash page-aligned addresses, so any byte in a page finds the same entry. */
@@ -252,12 +258,51 @@ supplemental_page_table_init (struct supplemental_page_table *spt) {
 	spt->initialized = hash_init (&spt->pages, page_hash, page_less, NULL);
 }
 
-/* Page-type-specific copying is implemented in the anonymous-page stage.
-   Reject nonempty copies for now instead of reporting a partial fork. */
+/* Preserve lazy backing references and copy resident contents independently. */
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst,
 		struct supplemental_page_table *src) {
-	return dst->initialized && src->initialized && hash_empty (&src->pages);
+	if (!dst->initialized || !src->initialized || !hash_empty (&dst->pages))
+		return false;
+	struct hash_iterator iterator;
+	hash_first (&iterator, &src->pages);
+	while (hash_next (&iterator)) {
+		struct page *source = hash_entry (hash_cur (&iterator), struct page, spt_elem);
+		if (source->operations->type == VM_UNINIT) {
+			struct lazy_load_info *info = NULL;
+			if (source->uninit.aux != NULL) {
+				info = malloc (sizeof *info);
+				if (info == NULL)
+					return false;
+				*info = *(struct lazy_load_info *) source->uninit.aux;
+				lock_acquire (&filesys_lock);
+				info->file = file_reopen (info->file);
+				lock_release (&filesys_lock);
+				if (info->file == NULL) {
+					free (info);
+					return false;
+				}
+			}
+			if (!vm_alloc_page_with_initializer (source->uninit.type, source->va,
+			                                    source->writable, source->uninit.init, info)) {
+				if (info != NULL) {
+					lock_acquire (&filesys_lock);
+					file_close (info->file);
+					lock_release (&filesys_lock);
+					free (info);
+				}
+				return false;
+			}
+		} else {
+			if (page_get_type (source) != VM_ANON || source->frame == NULL ||
+			    !vm_alloc_page (VM_ANON, source->va, source->writable) ||
+			    !vm_claim_page (source->va))
+				return false;
+			struct page *copy = spt_find_page (dst, source->va);
+			memcpy (copy->frame->kva, source->frame->kva, PGSIZE);
+		}
+	}
+	return true;
 }
 
 /* Destroy mappings before process_cleanup destroys their owning PML4. */

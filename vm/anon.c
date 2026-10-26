@@ -26,27 +26,23 @@ vm_anon_init (void) {
 
 /* Initialize the file mapping */
 bool
-anon_initializer (struct page *page, enum vm_type type, void *kva) {
-	/* Set up the handler */
+anon_initializer (struct page *page, enum vm_type type UNUSED, void *kva UNUSED) {
 	page->operations = &anon_ops;
-
-	struct anon_page *anon_page = &page->anon;
+	return true;
 }
 
-/* Swap in the page by read contents from the swap disk. */
+/* Until swapping is implemented, initialized anonymous pages stay resident. */
 static bool
-anon_swap_in (struct page *page, void *kva) {
-	struct anon_page *anon_page = &page->anon;
+anon_swap_in (struct page *page UNUSED, void *kva UNUSED) {
+	return false;
 }
 
-/* Swap out the page by writing contents to the swap disk. */
 static bool
-anon_swap_out (struct page *page) {
-	struct anon_page *anon_page = &page->anon;
+anon_swap_out (struct page *page UNUSED) {
+	return false;
 }
 
-/* Destroy the anonymous page. PAGE will be freed by the caller. */
+/* The SPT releases the resident frame after the type-specific destructor. */
 static void
-anon_destroy (struct page *page) {
-	struct anon_page *anon_page = &page->anon;
+anon_destroy (struct page *page UNUSED) {
 }
