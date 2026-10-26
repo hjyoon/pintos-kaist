@@ -137,6 +137,8 @@ struct thread {
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;
+	void *user_rsp;            /* Saved syscall-entry stack pointer. */
+	void *stack_bottom;        /* Lowest allocated stack page. */
 #endif
 
 	/* Owned by thread.c. */

@@ -300,6 +300,8 @@ __do_fork (void *aux_) {
 		process_activate (current);
 #ifdef VM
 		success = supplemental_page_table_copy (&current->spt, &parent->spt);
+		current->stack_bottom = parent->stack_bottom;
+		current->user_rsp = (void *) frame.rsp;
 #else
 		success = pml4_for_each (parent->pml4, duplicate_pte, parent);
 #endif
@@ -902,6 +904,7 @@ setup_stack (struct intr_frame *if_) {
 	    !vm_claim_page (bottom))
 		return false;
 	if_->rsp = USER_STACK;
+	thread_current ()->stack_bottom = bottom;
 	return true;
 }
 #endif /* VM */

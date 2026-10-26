@@ -73,6 +73,10 @@ user_buffer_valid (const void *buffer, size_t size, bool writable) {
 	     page += PGSIZE) {
 #ifdef VM
 		struct page *entry = spt_find_page (&thread_current ()->spt, (void *) page);
+		/* Preserve the original fault address for the stack heuristic. */
+		void *address = (void *) (page < start ? start : page);
+		if (entry == NULL && vm_try_handle_fault (NULL, address, false, writable, true))
+			entry = spt_find_page (&thread_current ()->spt, (void *) page);
 		if (entry == NULL || (writable && !entry->writable) ||
 		    !vm_claim_page ((void *) page))
 			return false;
@@ -319,6 +323,9 @@ sys_write (int fd, const void *buffer, unsigned size) {
 
 void
 syscall_handler (struct intr_frame *f) {
+#ifdef VM
+	thread_current ()->user_rsp = (void *) f->rsp;
+#endif
 	switch (f->R.rax) {
 		case SYS_HALT:
 			power_off ();

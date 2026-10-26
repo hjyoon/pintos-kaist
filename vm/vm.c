@@ -177,7 +177,23 @@ vm_get_frame (void) {
 
 /* Growing the stack. */
 static void
-vm_stack_growth (void *addr UNUSED) {
+vm_stack_growth (void *addr) {
+	struct thread *current = thread_current ();
+	uintptr_t target = (uintptr_t) pg_round_down (addr);
+	uintptr_t bottom = (uintptr_t) current->stack_bottom;
+	if (bottom == 0)
+		return;
+	while (bottom > target) {
+		void *next = (void *) (bottom - PGSIZE);
+		if (!vm_alloc_page (VM_ANON | VM_MARKER_0, next, true))
+			return;
+		if (!vm_claim_page (next)) {
+			spt_remove_page (&current->spt, spt_find_page (&current->spt, next));
+			return;
+		}
+		bottom -= PGSIZE;
+		current->stack_bottom = (void *) bottom;
+	}
 }
 
 /* Handle the fault on write_protected page */
@@ -189,10 +205,23 @@ vm_handle_wp (struct page *page UNUSED) {
 
 /* Return true on success */
 bool
-vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr,
-		bool user UNUSED, bool write, bool not_present) {
-	struct page *page = spt_find_page (&thread_current ()->spt, addr);
-	/* Unknown addresses and protection faults are not demand allocations. */
+vm_try_handle_fault (struct intr_frame *f, void *addr,
+		bool user, bool write, bool not_present) {
+	struct thread *current = thread_current ();
+	if (!not_present || addr == NULL || !is_user_vaddr (addr))
+		return false;
+	struct page *page = spt_find_page (&current->spt, addr);
+	if (page == NULL) {
+		uintptr_t rsp = user && f != NULL ? f->rsp : (uintptr_t) current->user_rsp;
+		uintptr_t address = (uintptr_t) addr;
+		uintptr_t limit = USER_STACK - (1 << 20);
+		if (rsp < limit || rsp > USER_STACK || address < limit ||
+		    address >= USER_STACK || address + 8 < rsp)
+			return false;
+		vm_stack_growth (addr);
+		page = spt_find_page (&current->spt, addr);
+	}
+	/* A stack heuristic never overrides an existing page's permissions. */
 	if (!not_present || page == NULL || (write && !page->writable))
 		return false;
 	return vm_do_claim_page (page);
