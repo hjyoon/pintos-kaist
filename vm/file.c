@@ -7,6 +7,11 @@
 #include "threads/vaddr.h"
 #include "userprog/syscall.h"
 
+struct file_backing {
+	struct frame *resident;
+	unsigned references;
+};
+
 static bool file_backed_swap_in (struct page *page, void *kva);
 static bool file_backed_swap_out (struct page *page);
 static void file_backed_destroy (struct page *page);
@@ -30,8 +35,13 @@ file_backed_initializer (struct page *page, enum vm_type type UNUSED, void *kva)
 	struct lazy_load_info *info = page->uninit.aux;
 	if (info == NULL || info->file == NULL)
 		return false;
+	struct file_backing *backing = calloc (1, sizeof *backing);
+	if (backing == NULL)
+		return false;
+	backing->references = 1;
 	struct file_page data = {
-		.file = info->file, .offset = info->offset, .read_bytes = info->read_bytes
+		.file = info->file, .offset = info->offset, .read_bytes = info->read_bytes,
+		.backing = backing
 	};
 	info->file = NULL;
 	page->operations = &file_ops;
@@ -71,8 +81,7 @@ static bool
 file_backed_swap_out (struct page *page) {
 	if (page->frame == NULL || !write_back (page))
 		return false;
-	pml4_clear_page (page->pml4, page->va);
-	/* The eviction layer detaches and reuses the frame. */
+	/* The eviction layer clears every alias only after all writebacks succeed. */
 	return true;
 }
 
@@ -82,6 +91,8 @@ file_backed_destroy (struct page *page) {
 	lock_acquire (&filesys_lock);
 	file_close (page->file.file);
 	lock_release (&filesys_lock);
+	if (--page->file.backing->references == 0)
+		free (page->file.backing);
 }
 
 /* Reserve every page before publishing the complete mapping.  On any
@@ -158,4 +169,50 @@ do_munmap (void *addr) {
 		if (page != NULL && page->mapping_start == addr)
 			spt_remove_page (spt, page);
 	}
+}
+
+void
+file_page_share (struct page *copy, struct page *source) {
+	copy->file.backing = source->file.backing;
+	copy->file.backing->references++;
+}
+
+bool
+file_page_private (struct page *page) {
+	struct file_backing *backing = page->file.backing;
+	if (backing->references > 1) {
+		struct file_backing *private = calloc (1, sizeof *private);
+		if (private == NULL)
+			return false;
+		private->references = 1;
+		if (list_size (&page->frame->pages) == 1)
+			backing->resident = NULL;
+		backing->references--;
+		page->file.backing = private;
+	}
+	return true;
+}
+
+struct frame *
+file_page_resident (struct page *page) {
+	return page->file.backing->resident;
+}
+
+void
+file_page_attach (struct page *page, struct frame *frame) {
+	ASSERT (page->file.backing->resident == NULL || page->file.backing->resident == frame);
+	page->file.backing->resident = frame;
+}
+
+void
+file_page_detach (struct page *page) {
+	struct file_backing *backing = page->file.backing;
+	for (struct list_elem *elem = list_begin (&page->frame->pages);
+	     elem != list_end (&page->frame->pages); elem = list_next (elem)) {
+		struct page *alias = list_entry (elem, struct page, frame_elem);
+		if (page_get_type (alias) == VM_FILE && alias->file.backing == backing)
+			return;
+	}
+	if (backing->resident == page->frame)
+		backing->resident = NULL;
 }

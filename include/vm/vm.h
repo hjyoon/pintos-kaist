@@ -47,6 +47,8 @@ struct page {
 	struct frame *frame;   /* Back reference for frame */
 
 	uint64_t *pml4;        /* Owning process page table. */
+	bool cow;              /* Logical write permission is temporarily protected. */
+	struct list_elem frame_elem; /* Link in a shared frame. */
 	bool writable;         /* Original mapping permissions. */
 	struct hash_elem spt_elem;
 	void *mapping_start;   /* NULL for pages outside mmap regions. */
@@ -68,8 +70,9 @@ struct page {
 struct frame {
 	void *kva;
 	struct page *page;
-	uint64_t *pml4;        /* Page table owning this mapping. */
+	uint64_t *pml4;        /* Representative alias; each page owns its PML4. */
 	struct list_elem elem; /* Global resident-frame list. */
+	struct list pages;     /* Every alias sharing this physical frame. */
 	unsigned pins;        /* Temporary eviction exclusion. */
 	bool listed;
 };

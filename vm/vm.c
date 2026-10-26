@@ -8,6 +8,7 @@
 #include "threads/vaddr.h"
 #include <string.h>
 #include "userprog/syscall.h"
+#include "intrinsic.h"
 
 static struct list frames;
 static struct lock vm_lock;
@@ -115,23 +116,78 @@ spt_insert_page (struct supplemental_page_table *spt, struct page *page) {
 	return hash_insert (&spt->pages, &page->spt_elem) == NULL;
 }
 
-/* Type-specific destruction runs while its mapping and frame are still
-   available (e.g. for a later file-backed writeback).  The SPT owns the
-   generic mapping and frame, and releases them after that callback. */
+/* Page-table edits must invalidate the active translation, including when
+   a writable mapping becomes a protected COW mapping. */
+static void
+refresh_translation (struct page *page) {
+	if (rcr3 () == vtop (page->pml4))
+		invlpg ((uint64_t) page->va);
+}
+
+static void
+set_writable (struct page *page, bool writable) {
+	uint64_t *pte = pml4e_walk (page->pml4, (uint64_t) page->va, false);
+	ASSERT (pte != NULL && (*pte & PTE_P) != 0);
+	if (writable)
+		*pte |= PTE_W;
+	else
+		*pte &= ~PTE_W;
+	refresh_translation (page);
+}
+
+static void
+update_representative (struct frame *frame) {
+	frame->page = list_empty (&frame->pages) ? NULL :
+	              list_entry (list_front (&frame->pages), struct page, frame_elem);
+	frame->pml4 = frame->page != NULL ? frame->page->pml4 : NULL;
+}
+
+static void
+attach_frame (struct page *page, struct frame *frame) {
+	page->frame = frame;
+	list_push_back (&frame->pages, &page->frame_elem);
+	if (page_get_type (page) == VM_ANON)
+		anon_attach (page, frame);
+	else
+		file_page_attach (page, frame);
+	update_representative (frame);
+	if (!frame->listed) {
+		list_push_back (&frames, &frame->elem);
+		frame->listed = true;
+	}
+}
+
+static void
+discard_frame (struct frame *frame) {
+	ASSERT (list_empty (&frame->pages));
+	if (frame->listed)
+		list_remove (&frame->elem);
+	palloc_free_page (frame->kva);
+	free (frame);
+}
+
+/* The type destructor retains access to its mapping during file writeback.
+   Other processes' aliases outlive removal of this one SPT entry. */
 static void
 destroy_spt_page (struct hash_elem *elem, void *aux UNUSED) {
 	struct page *page = hash_entry (elem, struct page, spt_elem);
 	struct frame *frame = page->frame;
 	void *va = page->va;
+	uint64_t *pml4 = page->pml4;
 	if (frame != NULL) {
-		list_remove (&frame->elem);
+		list_remove (&page->frame_elem);
+		if (page_get_type (page) == VM_ANON)
+			anon_detach (page);
+		else
+			file_page_detach (page);
+		update_representative (frame);
 	}
 	vm_dealloc_page (page);
 	if (frame != NULL) {
-		if (pml4_get_page (frame->pml4, va) == frame->kva)
-			pml4_clear_page (frame->pml4, va);
-		palloc_free_page (frame->kva);
-		free (frame);
+		if (pml4_get_page (pml4, va) == frame->kva)
+			pml4_clear_page (pml4, va);
+		if (list_empty (&frame->pages))
+			discard_frame (frame);
 	}
 }
 
@@ -154,10 +210,17 @@ vm_get_victim (void) {
 		list_push_back (&frames, &frame->elem);
 		if (frame->pins != 0)
 			continue;
-		if (pml4_is_accessed (frame->page->pml4, frame->page->va)) {
-			pml4_set_accessed (frame->page->pml4, frame->page->va, false);
-			continue;
+		bool accessed = false;
+		for (struct list_elem *elem = list_begin (&frame->pages);
+		     elem != list_end (&frame->pages); elem = list_next (elem)) {
+			struct page *page = list_entry (elem, struct page, frame_elem);
+			if (pml4_is_accessed (page->pml4, page->va)) {
+				accessed = true;
+				pml4_set_accessed (page->pml4, page->va, false);
+			}
 		}
+		if (accessed)
+			continue;
 		return frame;
 	}
 	return NULL;
@@ -171,10 +234,28 @@ vm_evict_frame (void) {
 		struct frame *victim = vm_get_victim ();
 		if (victim == NULL)
 			break;
-		if (!swap_out (victim->page))
+		bool saved = true;
+		for (struct list_elem *elem = list_begin (&victim->pages);
+		     elem != list_end (&victim->pages); elem = list_next (elem)) {
+			struct page *page = list_entry (elem, struct page, frame_elem);
+			if (!swap_out (page)) {
+				saved = false;
+				break;
+			}
+		}
+		if (!saved)
 			continue;
-		victim->page->frame = NULL;
-		victim->page = NULL;
+		while (!list_empty (&victim->pages)) {
+			struct page *page = list_entry (list_pop_front (&victim->pages),
+			                               struct page, frame_elem);
+			pml4_clear_page (page->pml4, page->va);
+			if (page_get_type (page) == VM_ANON)
+				anon_detach (page);
+			else
+				file_page_detach (page);
+			page->frame = NULL;
+		}
+		update_representative (victim);
 		return victim;
 	}
 	return NULL;
@@ -186,6 +267,7 @@ vm_get_frame (void) {
 	struct frame *frame = calloc (1, sizeof *frame);
 	if (frame == NULL)
 		return NULL;
+	list_init (&frame->pages);
 	frame->kva = palloc_get_page (PAL_USER | PAL_ZERO);
 	if (frame->kva == NULL) {
 		free (frame);
@@ -221,9 +303,53 @@ vm_stack_growth (void *addr) {
 
 /* Handle the fault on write_protected page */
 static bool
-vm_handle_wp (struct page *page UNUSED) {
-	/* Copy-on-write is a later, optional stage. */
-	return false;
+vm_handle_wp (struct page *page) {
+	if (page == NULL || !page->writable || !page->cow || page->frame == NULL)
+		return false;
+	struct frame *old = page->frame;
+	if (list_size (&old->pages) == 1) {
+		if (page_get_type (page) == VM_ANON) {
+			if (!anon_make_private (page))
+				return false;
+			anon_attach (page, old);
+		} else {
+			if (!file_page_private (page))
+				return false;
+			file_page_attach (page, old);
+		}
+		page->cow = false;
+		set_writable (page, true);
+		return true;
+	}
+
+	old->pins++;
+	struct frame *fresh = vm_get_frame ();
+	if (fresh == NULL) {
+		old->pins--;
+		return false;
+	}
+	memcpy (fresh->kva, old->kva, PGSIZE);
+	bool private = page_get_type (page) == VM_ANON ?
+	               anon_make_private (page) : file_page_private (page);
+	if (!private) {
+		discard_frame (fresh);
+		old->pins--;
+		return false;
+	}
+	bool dirty = pml4_is_dirty (page->pml4, page->va);
+	if (!pml4_set_page (page->pml4, page->va, fresh->kva, true)) {
+		discard_frame (fresh);
+		old->pins--;
+		return false;
+	}
+	refresh_translation (page);
+	list_remove (&page->frame_elem);
+	update_representative (old);
+	attach_frame (page, fresh);
+	page->cow = false;
+	pml4_set_dirty (page->pml4, page->va, dirty);
+	old->pins--;
+	return true;
 }
 
 /* Return true on success */
@@ -231,9 +357,12 @@ static bool
 handle_fault (struct intr_frame *f, void *addr,
 		bool user, bool write, bool not_present) {
 	struct thread *current = thread_current ();
-	if (!not_present || addr == NULL || !is_user_vaddr (addr))
+	if (addr == NULL || !is_user_vaddr (addr))
 		return false;
 	struct page *page = spt_find_page (&current->spt, addr);
+	if (!not_present)
+		return write && page != NULL && page->writable && page->cow &&
+		       vm_do_claim_page (page) && vm_handle_wp (page);
 	if (page == NULL) {
 		uintptr_t rsp = user && f != NULL ? f->rsp : (uintptr_t) current->user_rsp;
 		uintptr_t address = (uintptr_t) addr;
@@ -245,9 +374,9 @@ handle_fault (struct intr_frame *f, void *addr,
 		page = spt_find_page (&current->spt, addr);
 	}
 	/* A stack heuristic never overrides an existing page's permissions. */
-	if (!not_present || page == NULL || (write && !page->writable))
+	if (page == NULL || (write && !page->writable) || !vm_do_claim_page (page))
 		return false;
-	return vm_do_claim_page (page);
+	return !write || !page->cow || vm_handle_wp (page);
 }
 
 bool
@@ -296,7 +425,8 @@ vm_copy_user (void *kernel, void *user, size_t size, bool to_user) {
 	bool success = true;
 	while (size > 0) {
 		struct page *page = spt_find_page (&thread_current ()->spt, user);
-		if (page == NULL || (to_user && !page->writable) || !vm_do_claim_page (page)) {
+		if (page == NULL || (to_user && !page->writable) || !vm_do_claim_page (page) ||
+		    (to_user && page->cow && !vm_handle_wp (page))) {
 			success = false;
 			break;
 		}
@@ -345,10 +475,20 @@ vm_do_claim_page (struct page *page) {
 	    page->operations->swap_in == NULL)
 		return false;
 	if (page->frame != NULL)
-		return page->frame->pml4 == pml4 &&
-		       pml4_get_page (pml4, page->va) == page->frame->kva;
+		return pml4_get_page (pml4, page->va) == page->frame->kva;
 	if (pml4_get_page (pml4, page->va) != NULL)
 		return false;
+	struct frame *resident = NULL;
+	if (page->operations->type == VM_ANON)
+		resident = anon_resident (page);
+	else if (page->operations->type == VM_FILE)
+		resident = file_page_resident (page);
+	if (resident != NULL) {
+		if (!pml4_set_page (pml4, page->va, resident->kva, page->writable && !page->cow))
+			return false;
+		attach_frame (page, resident);
+		return true;
+	}
 
 	struct frame *frame = vm_get_frame ();
 	if (frame == NULL)
@@ -356,25 +496,19 @@ vm_do_claim_page (struct page *page) {
 	frame->pml4 = pml4;
 	frame->page = page;
 	page->frame = frame;
-	if (!pml4_set_page (pml4, page->va, frame->kva, page->writable))
+	if (!pml4_set_page (pml4, page->va, frame->kva, page->writable && !page->cow))
 		goto fail;
 	if (!swap_in (page, frame->kva)) {
 		pml4_clear_page (pml4, page->va);
 		goto fail;
 	}
-	if (!frame->listed) {
-		list_push_back (&frames, &frame->elem);
-		frame->listed = true;
-	}
+	attach_frame (page, frame);
 	return true;
 
 fail:
-	if (frame->listed)
-		list_remove (&frame->elem);
 	page->frame = NULL;
 	frame->page = NULL;
-	palloc_free_page (frame->kva);
-	free (frame);
+	discard_frame (frame);
 	return false;
 }
 
@@ -384,7 +518,8 @@ supplemental_page_table_init (struct supplemental_page_table *spt) {
 	spt->initialized = hash_init (&spt->pages, page_hash, page_less, NULL);
 }
 
-/* Preserve lazy backing references and copy resident contents independently. */
+/* Pending initializers retain independent backing references. Resident pages
+   share frames; swapped anonymous pages share immutable disk snapshots. */
 static bool
 copy_spt (struct supplemental_page_table *dst,
 		struct supplemental_page_table *src) {
@@ -420,51 +555,43 @@ copy_spt (struct supplemental_page_table *dst,
 				return false;
 			}
 		} else {
-			enum vm_type type = page_get_type (source);
-			struct lazy_load_info *info = NULL;
-			if (type == VM_FILE) {
-				info = malloc (sizeof *info);
-				if (info == NULL)
-					return false;
+			struct page *copy = calloc (1, sizeof *copy);
+			if (copy == NULL)
+				return false;
+			copy->operations = source->operations;
+			copy->va = source->va;
+			copy->pml4 = thread_current ()->pml4;
+			copy->writable = source->writable;
+			copy->cow = source->writable;
+			if (page_get_type (source) == VM_ANON)
+				anon_share (copy, source);
+			else if (page_get_type (source) == VM_FILE) {
+				copy->file = source->file;
 				lock_acquire (&filesys_lock);
-				info->file = file_reopen (source->file.file);
+				copy->file.file = file_reopen (source->file.file);
 				lock_release (&filesys_lock);
-				info->offset = source->file.offset;
-				info->read_bytes = source->file.read_bytes;
-				if (info->file == NULL) {
-					free (info);
+				if (copy->file.file == NULL) {
+					free (copy);
 					return false;
 				}
-			}
-			if (!vm_do_claim_page (source)) {
-				if (info != NULL) {
-					lock_acquire (&filesys_lock);
-					file_close (info->file);
-					lock_release (&filesys_lock);
-					free (info);
-				}
+				file_page_share (copy, source);
+			} else {
+				free (copy);
 				return false;
 			}
-			if (!vm_alloc_page_with_initializer (type, source->va,
-			                                    source->writable, NULL, info)) {
-				if (info != NULL) {
-					lock_acquire (&filesys_lock);
-					file_close (info->file);
-					lock_release (&filesys_lock);
-					free (info);
-				}
+			if (!spt_insert_page (dst, copy)) {
+				vm_dealloc_page (copy);
 				return false;
 			}
-			source->frame->pins++;
-			struct page *copy = spt_find_page (dst, source->va);
-			bool claimed = vm_do_claim_page (copy);
-			source->frame->pins--;
-			if (!claimed)
-				return false;
-			memcpy (copy->frame->kva, source->frame->kva, PGSIZE);
-			if (type == VM_FILE)
-				pml4_set_dirty (copy->frame->pml4, copy->va,
-				                pml4_is_dirty (source->frame->pml4, source->va));
+			if (source->frame != NULL) {
+				if (!pml4_set_page (copy->pml4, copy->va, source->frame->kva, false))
+					return false;
+				attach_frame (copy, source->frame);
+				set_writable (source, false);
+				pml4_set_dirty (copy->pml4, copy->va,
+				                pml4_is_dirty (source->pml4, source->va));
+			}
+			source->cow = source->writable;
 		}
 		struct page *copy = spt_find_page (dst, source->va);
 		copy->mapping_start = source->mapping_start;

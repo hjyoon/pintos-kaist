@@ -10,6 +10,7 @@
 struct anon_backing {
 	size_t slot;
 	unsigned references;
+	struct frame *resident;
 };
 static struct bitmap *swap_slots;
 #define SECTORS_PER_PAGE (PGSIZE / DISK_SECTOR_SIZE)
@@ -43,6 +44,7 @@ anon_initializer (struct page *page, enum vm_type type UNUSED, void *kva UNUSED)
 		return false;
 	backing->slot = BITMAP_ERROR;
 	backing->references = 1;
+	backing->resident = NULL;
 	page->operations = &anon_ops;
 	page->anon.backing = backing;
 	return true;
@@ -77,7 +79,6 @@ anon_swap_out (struct page *page) {
 			            (uint8_t *) page->frame->kva + i * DISK_SECTOR_SIZE);
 		backing->slot = slot;
 	}
-	pml4_clear_page (page->pml4, page->va);
 	return true;
 }
 
@@ -89,4 +90,61 @@ anon_destroy (struct page *page) {
 			bitmap_reset (swap_slots, backing->slot);
 		free (backing);
 	}
+}
+
+/* Sharing an anonymous snapshot also shares its swap slot if nonresident. */
+void
+anon_share (struct page *copy, struct page *source) {
+	copy->anon.backing = source->anon.backing;
+	copy->anon.backing->references++;
+}
+
+/* Called before a protected page can be written. The old disk snapshot
+   remains immutable while another process still refers to it. */
+bool
+anon_make_private (struct page *page) {
+	struct anon_backing *backing = page->anon.backing;
+	if (backing->references > 1) {
+		struct anon_backing *private = malloc (sizeof *private);
+		if (private == NULL)
+			return false;
+		private->slot = BITMAP_ERROR;
+		private->references = 1;
+		private->resident = NULL;
+		if (list_size (&page->frame->pages) == 1)
+			backing->resident = NULL;
+		backing->references--;
+		page->anon.backing = private;
+	} else if (backing->slot != BITMAP_ERROR) {
+		bitmap_reset (swap_slots, backing->slot);
+		backing->slot = BITMAP_ERROR;
+	}
+	return true;
+}
+
+/* Reuse a resident snapshot when a sibling faults it back in first. */
+struct frame *
+anon_resident (struct page *page) {
+	return page->anon.backing->resident;
+}
+
+void
+anon_attach (struct page *page, struct frame *frame) {
+	ASSERT (page->anon.backing->resident == NULL ||
+	        page->anon.backing->resident == frame);
+	page->anon.backing->resident = frame;
+}
+
+/* Called after removing PAGE's alias but before its backing is released. */
+void
+anon_detach (struct page *page) {
+	struct anon_backing *backing = page->anon.backing;
+	for (struct list_elem *elem = list_begin (&page->frame->pages);
+	     elem != list_end (&page->frame->pages); elem = list_next (elem)) {
+		struct page *alias = list_entry (elem, struct page, frame_elem);
+		if (page_get_type (alias) == VM_ANON && alias->anon.backing == backing)
+			return;
+	}
+	if (backing->resident == page->frame)
+		backing->resident = NULL;
 }
