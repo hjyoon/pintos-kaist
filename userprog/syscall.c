@@ -97,9 +97,11 @@ syscall_exit (int status) {
 /* Copy strings a page at a time, stopping at NUL before checking any
    later page.  No filesystem lock is held on a validation failure. */
 static char *
-copy_user_string (const char *user) {
-	if (!user_buffer_valid (user, 1, false))
+copy_user_string_cleanup (const char *user, void *on_fault) {
+	if (!user_buffer_valid (user, 1, false)) {
+		palloc_free_page (on_fault);
 		syscall_exit (-1);
+	}
 	char *copy = palloc_get_page (0);
 	if (copy == NULL)
 		return NULL;
@@ -110,6 +112,7 @@ copy_user_string (const char *user) {
 			chunk = PGSIZE - offset;
 		if (!user_buffer_valid (part, chunk, false)) {
 			palloc_free_page (copy);
+			palloc_free_page (on_fault);
 			syscall_exit (-1);
 		}
 #ifdef VM
@@ -126,6 +129,11 @@ copy_user_string (const char *user) {
 	}
 	palloc_free_page (copy);
 	return NULL;
+}
+
+static char *
+copy_user_string (const char *user) {
+	return copy_user_string_cleanup (user, NULL);
 }
 
 static struct process_fd *
@@ -403,6 +411,21 @@ syscall_handler (struct intr_frame *f) {
 			f->R.rax = sys_open ((const char *) f->R.rdi);
 			break;
 #ifdef EFILESYS
+		case SYS_SYMLINK: {
+			char *target = copy_user_string ((const char *) f->R.rdi);
+			/* A fault in the second string must release the first copy too. */
+			char *linkpath = target != NULL ?
+			                 copy_user_string_cleanup ((const char *) f->R.rsi, target) : NULL;
+			f->R.rax = -1;
+			if (target != NULL && linkpath != NULL) {
+				lock_acquire (&filesys_lock);
+				f->R.rax = filesys_symlink (target, linkpath);
+				lock_release (&filesys_lock);
+			}
+			palloc_free_page (linkpath);
+			palloc_free_page (target);
+			break;
+		}
 		case SYS_CHDIR:
 		case SYS_MKDIR: {
 			bool make_directory = f->R.rax == SYS_MKDIR;

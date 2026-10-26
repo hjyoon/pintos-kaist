@@ -15,13 +15,15 @@
 /* Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
 
+enum inode_type { INODE_FILE, INODE_DIRECTORY, INODE_SYMLINK };
+
 /* On-disk inode.
  * Must be exactly DISK_SECTOR_SIZE bytes long. */
 struct inode_disk {
 	disk_sector_t start;                /* FAT cluster, or legacy data sector. */
 	off_t length;                       /* File size in bytes. */
 	unsigned magic;                     /* Magic number. */
-	uint32_t is_directory;
+	uint32_t type;
 	disk_sector_t parent;
 	uint32_t unused[123];               /* Not used. */
 };
@@ -38,7 +40,7 @@ struct inode_data {
 	disk_sector_t start;
 	off_t length;
 	unsigned magic;
-	uint32_t is_directory;
+	uint32_t type;
 	disk_sector_t parent;
 };
 
@@ -135,7 +137,7 @@ inode_init (void) {
  * Returns true if successful.
  * Returns false if memory or disk allocation fails. */
 static bool
-create_inode (disk_sector_t sector, off_t length, bool directory, disk_sector_t parent) {
+create_inode (disk_sector_t sector, off_t length, enum inode_type type, disk_sector_t parent) {
 	struct inode_disk *disk_inode = NULL;
 	bool success = false;
 
@@ -150,7 +152,7 @@ create_inode (disk_sector_t sector, off_t length, bool directory, disk_sector_t 
 		size_t sectors = bytes_to_sectors (length);
 		disk_inode->length = length;
 		disk_inode->magic = INODE_MAGIC;
-		disk_inode->is_directory = directory;
+		disk_inode->type = type;
 		disk_inode->parent = parent;
 #ifdef EFILESYS
 		cluster_t tail = 0;
@@ -190,12 +192,17 @@ create_inode (disk_sector_t sector, off_t length, bool directory, disk_sector_t 
 
 bool
 inode_create (disk_sector_t sector, off_t length) {
-	return create_inode (sector, length, false, 0);
+	return create_inode (sector, length, INODE_FILE, 0);
 }
 
 bool
 inode_create_directory (disk_sector_t sector, off_t length, disk_sector_t parent) {
-	return create_inode (sector, length, true, parent);
+	return create_inode (sector, length, INODE_DIRECTORY, parent);
+}
+
+bool
+inode_create_symlink (disk_sector_t sector, off_t length) {
+	return create_inode (sector, length, INODE_SYMLINK, 0);
 }
 
 /* Reads an inode from SECTOR
@@ -231,7 +238,7 @@ inode_open (disk_sector_t sector) {
 	buffer_cache_read (inode->sector, &inode->data, 0, sizeof inode->data);
 #ifdef EFILESYS
 	if (inode->data.magic != INODE_MAGIC || inode->data.length < 0 ||
-	    inode->data.is_directory > 1 ||
+	    inode->data.type > INODE_SYMLINK ||
 	    (inode->data.length > 0 && inode->data.start == 0)) {
 		list_remove (&inode->elem);
 		free (inode);
@@ -465,7 +472,12 @@ root_inode_sector (void) {
 bool
 inode_is_directory (const struct inode *inode) {
 	/* The root is also recognized on FAT disks formatted before type fields. */
-	return inode != NULL && (inode->data.is_directory || inode->sector == root_inode_sector ());
+	return inode != NULL && (inode->data.type == INODE_DIRECTORY || inode->sector == root_inode_sector ());
+}
+
+bool
+inode_is_symlink (const struct inode *inode) {
+	return inode != NULL && inode->data.type == INODE_SYMLINK;
 }
 
 disk_sector_t

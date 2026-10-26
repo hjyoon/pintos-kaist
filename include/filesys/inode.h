@@ -11,7 +11,9 @@ struct inode;
 void inode_init (void);
 bool inode_create (disk_sector_t, off_t);
 bool inode_create_directory (disk_sector_t, off_t, disk_sector_t parent);
+bool inode_create_symlink (disk_sector_t, off_t);
 bool inode_is_directory (const struct inode *);
+bool inode_is_symlink (const struct inode *);
 bool inode_is_removed (const struct inode *);
 disk_sector_t inode_get_parent (const struct inode *);
 #ifdef EFILESYS

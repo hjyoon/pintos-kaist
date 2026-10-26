@@ -8,6 +8,7 @@
 #include "filesys/fat.h"
 #endif
 #include "threads/malloc.h"
+#include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
@@ -283,13 +284,18 @@ next_component (const char **path, char name[NAME_MAX + 1]) {
 	return 1;
 }
 
-/* Return an owned parent handle and its final component. The caller holds
-   filesys_lock, just as for other filesystem operations at this stage. */
-struct dir *
-dir_resolve_parent (const char *path, char name[NAME_MAX + 1]) {
+/* Resolve iteratively so links cannot consume the small kernel stack. A
+   relative target starts at its containing directory; the untouched suffix
+   also preserves trailing slashes and the order of . and .. traversal.
+   The caller holds filesys_lock. RESULT requests following the final link;
+   creation and unlink instead stop at the original final directory entry. */
+static struct dir *
+resolve_path (const char *path, char name[NAME_MAX + 1], struct inode **result) {
 	if (path == NULL || *path == '\0' || strnlen (path, PGSIZE) == PGSIZE)
 		return NULL;
 	struct dir *current = NULL;
+	char *pending = NULL;
+	unsigned links = 0;
 #ifdef USERPROG
 	if (*path != '/' && thread_current ()->cwd != NULL)
 		current = dir_reopen (thread_current ()->cwd);
@@ -301,20 +307,65 @@ dir_resolve_parent (const char *path, char name[NAME_MAX + 1]) {
 	if (inode_is_removed (dir_get_inode (current)))
 		goto fail;
 	for (;;) {
-		int result = next_component (&path, name);
-		if (result < 0)
+		int component = next_component (&path, name);
+		if (component < 0)
 			goto fail;
-		if (result == 0) {
+		if (component == 0)
 			strlcpy (name, ".", NAME_MAX + 1);
-			return current;
-		}
+		const char *suffix = path;
 		while (*path == '/')
 			path++;
-		if (*path == '\0')
+		bool last = *path == '\0';
+		if (last && result == NULL) {
+			palloc_free_page (pending);
 			return current;
+		}
 		struct inode *inode = NULL;
 		if (!dir_lookup (current, name, &inode))
 			goto fail;
+		if (inode_is_symlink (inode)) {
+			off_t length = inode_length (inode);
+			size_t remaining = strlen (suffix);
+			if (++links > 40 || length <= 0 || length >= PGSIZE ||
+			    remaining > PGSIZE - 1 - (size_t) length) {
+				inode_close (inode);
+				goto fail;
+			}
+			char *expanded = palloc_get_page (0);
+			if (expanded == NULL) {
+				inode_close (inode);
+				goto fail;
+			}
+			bool read = inode_read_at (inode, expanded, length, 0) == length;
+			inode_close (inode);
+			if (!read || memchr (expanded, '\0', length) != NULL) {
+				palloc_free_page (expanded);
+				goto fail;
+			}
+			memcpy (expanded + length, suffix, remaining + 1);
+			if (*expanded == '/') {
+				struct dir *root = dir_open_root ();
+				if (root == NULL) {
+					palloc_free_page (expanded);
+					goto fail;
+				}
+				dir_close (current);
+				current = root;
+			}
+			palloc_free_page (pending);
+			pending = expanded;
+			path = pending;
+			continue;
+		}
+		if (last) {
+			if (*suffix == '/' && !inode_is_directory (inode)) {
+				inode_close (inode);
+				goto fail;
+			}
+			*result = inode;
+			palloc_free_page (pending);
+			return current;
+		}
 		struct dir *next = dir_open (inode);
 		if (next == NULL)
 			goto fail;
@@ -322,6 +373,21 @@ dir_resolve_parent (const char *path, char name[NAME_MAX + 1]) {
 		current = next;
 	}
 fail:
+	palloc_free_page (pending);
 	dir_close (current);
 	return NULL;
+}
+
+struct dir *
+dir_resolve_parent (const char *path, char name[NAME_MAX + 1]) {
+	return resolve_path (path, name, NULL);
+}
+
+struct inode *
+dir_resolve_inode (const char *path) {
+	char name[NAME_MAX + 1];
+	struct inode *inode = NULL;
+	struct dir *parent = resolve_path (path, name, &inode);
+	dir_close (parent);
+	return inode;
 }

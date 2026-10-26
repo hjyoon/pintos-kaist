@@ -9,6 +9,7 @@
 #include "devices/disk.h"
 #include "filesys/page_cache.h"
 #include "threads/thread.h"
+#include "threads/vaddr.h"
 #ifdef USERPROG
 #include "userprog/syscall.h"
 #include "threads/synch.h"
@@ -124,17 +125,7 @@ filesys_create (const char *name, off_t initial_size) {
  * or if an internal memory allocation fails. */
 struct file *
 filesys_open (const char *name) {
-	char leaf[NAME_MAX + 1];
-	struct dir *dir = dir_resolve_parent (name, leaf);
-	struct inode *inode = NULL;
-	if (dir != NULL)
-		dir_lookup (dir, leaf, &inode);
-	dir_close (dir);
-	if (inode != NULL && name[strlen (name) - 1] == '/' && !inode_is_directory (inode)) {
-		inode_close (inode);
-		inode = NULL;
-	}
-	return file_open (inode);
+	return file_open (dir_resolve_inode (name));
 }
 
 /* Deletes the file named NAME.
@@ -193,13 +184,7 @@ filesys_mkdir (const char *name) {
 bool
 filesys_chdir (const char *name) {
 #ifdef USERPROG
-	char leaf[NAME_MAX + 1];
-	struct dir *parent = dir_resolve_parent (name, leaf);
-	struct inode *inode = NULL;
-	if (parent != NULL)
-		dir_lookup (parent, leaf, &inode);
-	dir_close (parent);
-	struct dir *next = dir_open (inode);
+	struct dir *next = dir_open (dir_resolve_inode (name));
 	if (next == NULL)
 		return false;
 	struct dir *previous = thread_current ()->cwd;
@@ -208,6 +193,47 @@ filesys_chdir (const char *name) {
 	return true;
 #else
 	return false;
+#endif
+}
+
+/* Link contents are stored in the ordinary FAT data chain. The name becomes
+   visible only once both its type and complete target have been written. */
+int
+filesys_symlink (const char *target, const char *linkpath) {
+#ifdef EFILESYS
+	if (target == NULL)
+		return -1;
+	size_t length = strnlen (target, PGSIZE);
+	if (length == 0 || length == PGSIZE)
+		return -1;
+	char leaf[NAME_MAX + 1];
+	struct dir *parent = dir_resolve_parent (linkpath, leaf);
+	if (parent == NULL)
+		return -1;
+	struct inode *existing = NULL;
+	if (!strcmp (leaf, ".") || !strcmp (leaf, "..") ||
+	    linkpath[strlen (linkpath) - 1] == '/' || dir_lookup (parent, leaf, &existing)) {
+		inode_close (existing);
+		dir_close (parent);
+		return -1;
+	}
+	cluster_t cluster = fat_create_chain (0);
+	disk_sector_t sector = cluster != 0 ? cluster_to_sector (cluster) : 0;
+	bool created = cluster != 0 && inode_create_symlink (sector, length);
+	struct inode *inode = created ? inode_open (sector) : NULL;
+	bool success = inode != NULL && inode_write_at (inode, target, length, 0) == (off_t) length;
+	inode_close (inode);
+	success = success && dir_add (parent, leaf, sector);
+	if (!success && cluster != 0) {
+		if (created)
+			inode_discard (sector);
+		else
+			fat_remove_chain (cluster, 0);
+	}
+	dir_close (parent);
+	return success ? 0 : -1;
+#else
+	return -1;
 #endif
 }
 
