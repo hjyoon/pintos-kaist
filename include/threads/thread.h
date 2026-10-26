@@ -129,6 +129,7 @@ struct thread {
 	struct list children;              /* Owned child-status references. */
 	struct child_status *as_child;      /* This process's exit record. */
 	struct process_fd **fd_table;             /* One separately allocated page. */
+	struct dir *cwd;                   /* Owned current-directory reference. */
 	struct file *executable;            /* Kept open with writes denied. */
 	int exit_status;
 	bool is_user_process;

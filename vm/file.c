@@ -105,7 +105,8 @@ do_mmap (void *addr, size_t length, int writable, struct file *file, off_t offse
 	uintptr_t start = (uintptr_t) addr;
 	if (addr == NULL || !is_user_vaddr (addr) || pg_ofs (addr) != 0 ||
 	    length == 0 || length > KERN_BASE - start ||
-	    offset < 0 || offset % PGSIZE != 0 || file == NULL)
+	    offset < 0 || offset % PGSIZE != 0 || file == NULL ||
+	    inode_is_directory (file_get_inode (file)))
 		return NULL;
 	size_t count = (length - 1) / PGSIZE + 1;
 	struct supplemental_page_table *spt = &thread_current ()->spt;

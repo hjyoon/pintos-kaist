@@ -9,6 +9,7 @@
 #include "userprog/tss.h"
 #include "filesys/directory.h"
 #include "filesys/file.h"
+#include "filesys/inode.h"
 #include "filesys/filesys.h"
 #include "threads/flags.h"
 #include "threads/init.h"
@@ -88,6 +89,7 @@ struct child_status {
 };
 
 struct launch_aux {
+	struct dir *cwd;
 	char *command;
 	char *name;
 	struct child_status *status;
@@ -185,6 +187,17 @@ process_create_initd (const char *command) {
 		free (aux);
 		return TID_ERROR;
 	}
+	lock_acquire (&filesys_lock);
+	aux->cwd = thread_current ()->cwd != NULL ?
+	           dir_reopen (thread_current ()->cwd) : dir_open_root ();
+	lock_release (&filesys_lock);
+	if (aux->cwd == NULL) {
+		free (full_name);
+		palloc_free_page (copy);
+		free (status);
+		free (aux);
+		return TID_ERROR;
+	}
 	strlcpy (copy, command, PGSIZE);
 	char thread_name[16];
 	if (length >= sizeof thread_name)
@@ -196,6 +209,9 @@ process_create_initd (const char *command) {
 	aux->status = status;
 	tid_t tid = thread_create (thread_name, PRI_DEFAULT, initd, aux);
 	if (tid == TID_ERROR) {
+		lock_acquire (&filesys_lock);
+		dir_close (aux->cwd);
+		lock_release (&filesys_lock);
 		free (full_name);
 		palloc_free_page (copy);
 		free (status);
@@ -211,6 +227,7 @@ static void
 initd (void *aux_) {
 	struct launch_aux *aux = aux_;
 	char *command = aux->command;
+	thread_current ()->cwd = aux->cwd;
 	thread_current ()->process_name = aux->name;
 	thread_current ()->as_child = aux->status;
 	free (aux);
@@ -293,6 +310,12 @@ __do_fork (void *aux_) {
 	supplemental_page_table_init (&current->spt);
 #endif
 	bool success = process_init ();
+	if (success) {
+		lock_acquire (&filesys_lock);
+		current->cwd = dir_reopen (parent->cwd);
+		lock_release (&filesys_lock);
+		success = current->cwd != NULL;
+	}
 	if (success) {
 		current->pml4 = pml4_create ();
 		success = current->pml4 != NULL;
@@ -453,13 +476,15 @@ process_exit (void) {
 	free (current->process_name);
 	current->process_name = NULL;
 	process_cleanup ();
-	if (current->fd_table != NULL || current->executable != NULL) {
+	if (current->fd_table != NULL || current->executable != NULL || current->cwd != NULL) {
 		lock_acquire (&filesys_lock);
 		if (current->fd_table != NULL)
 			for (int fd = 0; fd < FD_COUNT; fd++)
 				process_fd_release (current->fd_table[fd]);
 		file_close (current->executable);
 		current->executable = NULL;
+		dir_close (current->cwd);
+		current->cwd = NULL;
 		lock_release (&filesys_lock);
 		palloc_free_page (current->fd_table);
 		current->fd_table = NULL;
@@ -596,6 +621,10 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* Open executable file. */
 	file = filesys_open (file_name);
+	if (file != NULL && inode_is_directory (file_get_inode (file))) {
+		file_close (file);
+		file = NULL;
+	}
 	if (file == NULL) {
 		printf ("load: %s: open failed\n", file_name);
 		goto done;

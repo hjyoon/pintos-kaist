@@ -136,7 +136,8 @@ lookup_fd (int fd) {
 static struct file *
 lookup_file (int fd) {
 	struct process_fd *entry = lookup_fd (fd);
-	return entry != NULL ? entry->file : NULL;
+	return entry != NULL && entry->file != NULL &&
+	       !inode_is_directory (file_get_inode (entry->file)) ? entry->file : NULL;
 }
 
 static int
@@ -232,7 +233,8 @@ sys_read (int fd, void *buffer, unsigned size) {
 		syscall_exit (-1);
 	struct process_fd *entry = lookup_fd (fd);
 	struct file *file = entry != NULL ? entry->file : NULL;
-	if (entry == NULL || entry->kind == FD_OUTPUT)
+	if (entry == NULL || entry->kind == FD_OUTPUT ||
+	    (file != NULL && inode_is_directory (file_get_inode (file))))
 		return -1;
 	if (size == 0)
 		return 0;
@@ -288,7 +290,8 @@ sys_write (int fd, const void *buffer, unsigned size) {
 		syscall_exit (-1);
 	struct process_fd *entry = lookup_fd (fd);
 	struct file *file = entry != NULL ? entry->file : NULL;
-	if (entry == NULL || entry->kind == FD_INPUT)
+	if (entry == NULL || entry->kind == FD_INPUT ||
+	    (file != NULL && inode_is_directory (file_get_inode (file))))
 		return -1;
 	if (size == 0)
 		return 0;
@@ -372,6 +375,19 @@ syscall_handler (struct intr_frame *f) {
 		case SYS_OPEN:
 			f->R.rax = sys_open ((const char *) f->R.rdi);
 			break;
+#ifdef EFILESYS
+		case SYS_CHDIR: {
+			char *path = copy_user_string ((const char *) f->R.rdi);
+			f->R.rax = false;
+			if (path != NULL) {
+				lock_acquire (&filesys_lock);
+				f->R.rax = filesys_chdir (path);
+				lock_release (&filesys_lock);
+				palloc_free_page (path);
+			}
+			break;
+		}
+#endif
 #ifdef VM
 		case SYS_MMAP: {
 			struct file *file = lookup_file ((int) f->R.r10);

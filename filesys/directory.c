@@ -8,6 +8,8 @@
 #include "filesys/fat.h"
 #endif
 #include "threads/malloc.h"
+#include "threads/thread.h"
+#include "threads/vaddr.h"
 
 /* A directory. */
 struct dir {
@@ -26,7 +28,13 @@ struct dir_entry {
  * given SECTOR.  Returns true if successful, false on failure. */
 bool
 dir_create (disk_sector_t sector, size_t entry_cnt) {
-	return inode_create (sector, entry_cnt * sizeof (struct dir_entry));
+	return dir_create_at (sector, entry_cnt, sector);
+}
+
+/* Parent identity is metadata, so . and .. need no visible directory slots. */
+bool
+dir_create_at (disk_sector_t sector, size_t entry_cnt, disk_sector_t parent) {
+	return inode_create_directory (sector, entry_cnt * sizeof (struct dir_entry), parent);
 }
 
 /* Opens and returns the directory for the given INODE, of which
@@ -34,7 +42,7 @@ dir_create (disk_sector_t sector, size_t entry_cnt) {
 struct dir *
 dir_open (struct inode *inode) {
 	struct dir *dir = calloc (1, sizeof *dir);
-	if (inode != NULL && dir != NULL) {
+	if (inode != NULL && inode_is_directory (inode) && dir != NULL) {
 		dir->inode = inode;
 		dir->pos = 0;
 		return dir;
@@ -60,7 +68,7 @@ dir_open_root (void) {
  * Returns a null pointer on failure. */
 struct dir *
 dir_reopen (struct dir *dir) {
-	return dir_open (inode_reopen (dir->inode));
+	return dir != NULL ? dir_open (inode_reopen (dir->inode)) : NULL;
 }
 
 /* Destroys DIR and frees associated resources. */
@@ -116,6 +124,19 @@ dir_lookup (const struct dir *dir, const char *name,
 	ASSERT (dir != NULL);
 	ASSERT (name != NULL);
 
+	if (inode_is_removed (dir->inode)) {
+		*inode = NULL;
+		return false;
+	}
+	if (!strcmp (name, ".")) {
+		*inode = inode_reopen (dir->inode);
+		return *inode != NULL;
+	}
+	if (!strcmp (name, "..")) {
+		disk_sector_t parent = inode_get_parent (dir->inode);
+		*inode = parent != 0 ? inode_open (parent) : NULL;
+		return *inode != NULL;
+	}
 	if (lookup (dir, name, &e, NULL))
 		*inode = inode_open (e.inode_sector);
 	else
@@ -140,7 +161,8 @@ dir_add (struct dir *dir, const char *name, disk_sector_t inode_sector) {
 	ASSERT (name != NULL);
 
 	/* Check NAME for validity. */
-	if (*name == '\0' || strlen (name) > NAME_MAX)
+	if (*name == '\0' || strlen (name) > NAME_MAX || strchr (name, '/') != NULL ||
+	    !strcmp (name, ".") || !strcmp (name, "..") || inode_is_removed (dir->inode))
 		return false;
 
 	/* Check that NAME is not in use. */
@@ -188,9 +210,10 @@ dir_remove (struct dir *dir, const char *name) {
 
 	/* Open inode. */
 	inode = inode_open (e.inode_sector);
-	if (inode == NULL)
+	if (inode == NULL || inode_is_directory (inode))
 		goto done;
 
+	/* Directory deletion is implemented in the subdirectories stage. */
 	/* Erase directory entry. */
 	e.in_use = false;
 	if (inode_write_at (dir->inode, &e, sizeof e, ofs) != sizeof e)
@@ -220,4 +243,66 @@ dir_readdir (struct dir *dir, char name[NAME_MAX + 1]) {
 		}
 	}
 	return false;
+}
+
+/* Parse one bounded component without placing the whole path on the stack. */
+static int
+next_component (const char **path, char name[NAME_MAX + 1]) {
+	const char *cursor = *path;
+	while (*cursor == '/')
+		cursor++;
+	if (*cursor == '\0')
+		return 0;
+	size_t length = 0;
+	while (*cursor != '\0' && *cursor != '/') {
+		if (length == NAME_MAX)
+			return -1;
+		name[length++] = *cursor++;
+	}
+	name[length] = '\0';
+	*path = cursor;
+	return 1;
+}
+
+/* Return an owned parent handle and its final component. The caller holds
+   filesys_lock, just as for other filesystem operations at this stage. */
+struct dir *
+dir_resolve_parent (const char *path, char name[NAME_MAX + 1]) {
+	if (path == NULL || *path == '\0' || strnlen (path, PGSIZE) == PGSIZE)
+		return NULL;
+	struct dir *current = NULL;
+#ifdef USERPROG
+	if (*path != '/' && thread_current ()->cwd != NULL)
+		current = dir_reopen (thread_current ()->cwd);
+	else
+#endif
+		current = dir_open_root ();
+	if (current == NULL)
+		return NULL;
+	if (inode_is_removed (dir_get_inode (current)))
+		goto fail;
+	for (;;) {
+		int result = next_component (&path, name);
+		if (result < 0)
+			goto fail;
+		if (result == 0) {
+			strlcpy (name, ".", NAME_MAX + 1);
+			return current;
+		}
+		while (*path == '/')
+			path++;
+		if (*path == '\0')
+			return current;
+		struct inode *inode = NULL;
+		if (!dir_lookup (current, name, &inode))
+			goto fail;
+		struct dir *next = dir_open (inode);
+		if (next == NULL)
+			goto fail;
+		dir_close (current);
+		current = next;
+	}
+fail:
+	dir_close (current);
+	return NULL;
 }

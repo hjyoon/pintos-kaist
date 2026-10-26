@@ -8,6 +8,7 @@
 #include "filesys/directory.h"
 #include "devices/disk.h"
 #include "filesys/page_cache.h"
+#include "threads/thread.h"
 #ifdef USERPROG
 #include "userprog/syscall.h"
 #include "threads/synch.h"
@@ -80,7 +81,14 @@ filesys_done (void) {
 bool
 filesys_create (const char *name, off_t initial_size) {
 	disk_sector_t inode_sector = 0;
-	struct dir *dir = dir_open_root ();
+	char leaf[NAME_MAX + 1];
+	struct dir *dir = dir_resolve_parent (name, leaf);
+	if (dir == NULL)
+		return false;
+	if (!strcmp (leaf, ".") || !strcmp (leaf, "..") || name[strlen (name) - 1] == '/') {
+		dir_close (dir);
+		return false;
+	}
 #ifdef EFILESYS
 	cluster_t inode_cluster = dir != NULL ? fat_create_chain (0) : 0;
 	bool created = false;
@@ -88,7 +96,7 @@ filesys_create (const char *name, off_t initial_size) {
 		inode_sector = cluster_to_sector (inode_cluster);
 		created = inode_create (inode_sector, initial_size);
 	}
-	bool success = created && dir_add (dir, name, inode_sector);
+	bool success = created && dir_add (dir, leaf, inode_sector);
 	if (!success && inode_cluster != 0) {
 		if (created)
 			inode_discard (inode_sector);
@@ -99,7 +107,7 @@ filesys_create (const char *name, off_t initial_size) {
 	bool success = (dir != NULL
 			&& free_map_allocate (1, &inode_sector)
 			&& inode_create (inode_sector, initial_size)
-			&& dir_add (dir, name, inode_sector));
+			&& dir_add (dir, leaf, inode_sector));
 	if (!success && inode_sector != 0)
 		free_map_release (inode_sector, 1);
 #endif
@@ -116,13 +124,16 @@ filesys_create (const char *name, off_t initial_size) {
  * or if an internal memory allocation fails. */
 struct file *
 filesys_open (const char *name) {
-	struct dir *dir = dir_open_root ();
+	char leaf[NAME_MAX + 1];
+	struct dir *dir = dir_resolve_parent (name, leaf);
 	struct inode *inode = NULL;
-
 	if (dir != NULL)
-		dir_lookup (dir, name, &inode);
+		dir_lookup (dir, leaf, &inode);
 	dir_close (dir);
-
+	if (inode != NULL && name[strlen (name) - 1] == '/' && !inode_is_directory (inode)) {
+		inode_close (inode);
+		inode = NULL;
+	}
 	return file_open (inode);
 }
 
@@ -132,11 +143,37 @@ filesys_open (const char *name) {
  * or if an internal memory allocation fails. */
 bool
 filesys_remove (const char *name) {
-	struct dir *dir = dir_open_root ();
-	bool success = dir != NULL && dir_remove (dir, name);
+	char leaf[NAME_MAX + 1];
+	struct dir *dir = dir_resolve_parent (name, leaf);
+	struct inode *inode = NULL;
+	bool success = dir != NULL && strcmp (leaf, ".") && strcmp (leaf, "..") &&
+	               name[strlen (name) - 1] != '/' && dir_lookup (dir, leaf, &inode) &&
+	               !inode_is_directory (inode) && dir_remove (dir, leaf);
+	inode_close (inode);
 	dir_close (dir);
-
 	return success;
+}
+
+/* Replace CWD only after the entire destination path has been resolved. */
+bool
+filesys_chdir (const char *name) {
+#ifdef USERPROG
+	char leaf[NAME_MAX + 1];
+	struct dir *parent = dir_resolve_parent (name, leaf);
+	struct inode *inode = NULL;
+	if (parent != NULL)
+		dir_lookup (parent, leaf, &inode);
+	dir_close (parent);
+	struct dir *next = dir_open (inode);
+	if (next == NULL)
+		return false;
+	struct dir *previous = thread_current ()->cwd;
+	thread_current ()->cwd = next;
+	dir_close (previous);
+	return true;
+#else
+	return false;
+#endif
 }
 
 /* Formats the file system. */

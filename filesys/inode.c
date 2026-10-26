@@ -21,7 +21,9 @@ struct inode_disk {
 	disk_sector_t start;                /* FAT cluster, or legacy data sector. */
 	off_t length;                       /* File size in bytes. */
 	unsigned magic;                     /* Magic number. */
-	uint32_t unused[125];               /* Not used. */
+	uint32_t is_directory;
+	disk_sector_t parent;
+	uint32_t unused[123];               /* Not used. */
 };
 
 /* Returns the number of sectors to allocate for an inode SIZE
@@ -36,6 +38,8 @@ struct inode_data {
 	disk_sector_t start;
 	off_t length;
 	unsigned magic;
+	uint32_t is_directory;
+	disk_sector_t parent;
 };
 
 /* In-memory inode. */
@@ -130,8 +134,8 @@ inode_init (void) {
  * disk.
  * Returns true if successful.
  * Returns false if memory or disk allocation fails. */
-bool
-inode_create (disk_sector_t sector, off_t length) {
+static bool
+create_inode (disk_sector_t sector, off_t length, bool directory, disk_sector_t parent) {
 	struct inode_disk *disk_inode = NULL;
 	bool success = false;
 
@@ -146,6 +150,8 @@ inode_create (disk_sector_t sector, off_t length) {
 		size_t sectors = bytes_to_sectors (length);
 		disk_inode->length = length;
 		disk_inode->magic = INODE_MAGIC;
+		disk_inode->is_directory = directory;
+		disk_inode->parent = parent;
 #ifdef EFILESYS
 		cluster_t tail = 0;
 		static const char zeros[DISK_SECTOR_SIZE];
@@ -182,6 +188,16 @@ inode_create (disk_sector_t sector, off_t length) {
 	return success;
 }
 
+bool
+inode_create (disk_sector_t sector, off_t length) {
+	return create_inode (sector, length, false, 0);
+}
+
+bool
+inode_create_directory (disk_sector_t sector, off_t length, disk_sector_t parent) {
+	return create_inode (sector, length, true, parent);
+}
+
 /* Reads an inode from SECTOR
  * and returns a `struct inode' that contains it.
  * Returns a null pointer if memory allocation fails. */
@@ -215,6 +231,7 @@ inode_open (disk_sector_t sector) {
 	buffer_cache_read (inode->sector, &inode->data, 0, sizeof inode->data);
 #ifdef EFILESYS
 	if (inode->data.magic != INODE_MAGIC || inode->data.length < 0 ||
+	    inode->data.is_directory > 1 ||
 	    (inode->data.length > 0 && inode->data.start == 0)) {
 		list_remove (&inode->elem);
 		free (inode);
@@ -435,3 +452,28 @@ inode_discard (disk_sector_t sector) {
 	fat_remove_chain (sector_to_cluster (sector), 0);
 }
 #endif
+
+static disk_sector_t
+root_inode_sector (void) {
+#ifdef EFILESYS
+	return cluster_to_sector (ROOT_DIR_CLUSTER);
+#else
+	return ROOT_DIR_SECTOR;
+#endif
+}
+
+bool
+inode_is_directory (const struct inode *inode) {
+	/* The root is also recognized on FAT disks formatted before type fields. */
+	return inode != NULL && (inode->data.is_directory || inode->sector == root_inode_sector ());
+}
+
+disk_sector_t
+inode_get_parent (const struct inode *inode) {
+	return inode->sector == root_inode_sector () ? inode->sector : inode->data.parent;
+}
+
+bool
+inode_is_removed (const struct inode *inode) {
+	return inode->removed;
+}
