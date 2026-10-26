@@ -55,7 +55,7 @@ file_backed_swap_in (struct page *page, void *kva) {
 static bool
 write_back (struct page *page) {
 	struct frame *frame = page->frame;
-	if (frame == NULL || !pml4_is_dirty (frame->pml4, page->va))
+	if (frame == NULL || !pml4_is_dirty (page->pml4, page->va))
 		return true;
 	struct file_page *file = &page->file;
 	lock_acquire (&filesys_lock);
@@ -63,7 +63,7 @@ write_back (struct page *page) {
 	                             file->offset) == (off_t) file->read_bytes;
 	lock_release (&filesys_lock);
 	if (success)
-		pml4_set_dirty (frame->pml4, page->va, false);
+		pml4_set_dirty (page->pml4, page->va, false);
 	return success;
 }
 
@@ -71,7 +71,7 @@ static bool
 file_backed_swap_out (struct page *page) {
 	if (page->frame == NULL || !write_back (page))
 		return false;
-	pml4_clear_page (page->frame->pml4, page->va);
+	pml4_clear_page (page->pml4, page->va);
 	/* The eviction layer detaches and reuses the frame. */
 	return true;
 }

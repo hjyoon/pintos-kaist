@@ -58,6 +58,9 @@ syscall_init (void) {
    user pointers.  A zero-length range does not access its pointer. */
 bool
 user_buffer_valid (const void *buffer, size_t size, bool writable) {
+#ifdef VM
+	return vm_user_buffer_valid (buffer, size, writable);
+#else
 	if (size == 0)
 		return true;
 
@@ -71,16 +74,7 @@ user_buffer_valid (const void *buffer, size_t size, bool writable) {
 	uintptr_t last_page = (uintptr_t) pg_round_down (start + size - 1);
 	for (uintptr_t page = (uintptr_t) pg_round_down (start);;
 	     page += PGSIZE) {
-#ifdef VM
-		struct page *entry = spt_find_page (&thread_current ()->spt, (void *) page);
-		/* Preserve the original fault address for the stack heuristic. */
-		void *address = (void *) (page < start ? start : page);
-		if (entry == NULL && vm_try_handle_fault (NULL, address, false, writable, true))
-			entry = spt_find_page (&thread_current ()->spt, (void *) page);
-		if (entry == NULL || (writable && !entry->writable) ||
-		    !vm_claim_page ((void *) page))
-			return false;
-#endif
+
 		uint64_t *pte = pml4e_walk (pml4, page, 0);
 		if (pte == NULL || (*pte & (PTE_P | PTE_U)) != (PTE_P | PTE_U) ||
 		    (writable && (*pte & PTE_W) == 0))
@@ -88,6 +82,7 @@ user_buffer_valid (const void *buffer, size_t size, bool writable) {
 		if (page == last_page)
 			return true;
 	}
+#endif
 }
 
 /* Both system calls and user exceptions use the same exit path. */
@@ -115,12 +110,16 @@ copy_user_string (const char *user) {
 			palloc_free_page (copy);
 			syscall_exit (-1);
 		}
-		const char *end = memchr (part, '\0', chunk);
-		if (end != NULL) {
-			memcpy (copy + offset, part, end - part + 1);
-			return copy;
+#ifdef VM
+		if (!vm_copy_user (copy + offset, (void *) part, chunk, false)) {
+			palloc_free_page (copy);
+			return NULL;
 		}
+#else
 		memcpy (copy + offset, part, chunk);
+#endif
+		if (memchr (copy + offset, '\0', chunk) != NULL)
+			return copy;
 		offset += chunk;
 	}
 	palloc_free_page (copy);
@@ -240,8 +239,6 @@ sys_read (int fd, void *buffer, unsigned size) {
 	if (copy == NULL)
 		return -1;
 	size_t total = 0;
-	if (file != NULL)
-		lock_acquire (&filesys_lock);
 	while (total < size) {
 		size_t chunk = size - total;
 		if (chunk > PGSIZE)
@@ -252,6 +249,7 @@ sys_read (int fd, void *buffer, unsigned size) {
 				copy[i] = input_getc ();
 			count = chunk;
 		} else {
+			lock_acquire (&filesys_lock);
 			/* The base filesystem cannot grow beyond signed inode offsets.
 			   An unsigned position past EOF must not be narrowed first. */
 			if (entry->position >= (uint32_t) file_length (file))
@@ -261,16 +259,22 @@ sys_read (int fd, void *buffer, unsigned size) {
 				if (count > 0)
 					entry->position += count;
 			}
+			lock_release (&filesys_lock);
 		}
 		if (count <= 0)
 			break;
+#ifdef VM
+		if (!vm_copy_user (copy, (char *) buffer + total, count, true)) {
+			palloc_free_page (copy);
+			syscall_exit (-1);
+		}
+#else
 		memcpy ((char *) buffer + total, copy, count);
+#endif
 		total += count;
 		if ((size_t) count < chunk)
 			break;
 	}
-	if (file != NULL)
-		lock_release (&filesys_lock);
 	palloc_free_page (copy);
 	return total;
 }
@@ -289,18 +293,24 @@ sys_write (int fd, const void *buffer, unsigned size) {
 	if (copy == NULL)
 		return -1;
 	size_t total = 0;
-	if (file != NULL)
-		lock_acquire (&filesys_lock);
 	while (total < size) {
 		size_t chunk = size - total;
 		if (chunk > PGSIZE)
 			chunk = PGSIZE;
+#ifdef VM
+		if (!vm_copy_user (copy, (char *) buffer + total, chunk, false)) {
+			palloc_free_page (copy);
+			syscall_exit (-1);
+		}
+#else
 		memcpy (copy, (const char *) buffer + total, chunk);
+#endif
 		int count;
 		if (entry->kind == FD_OUTPUT) {
 			putbuf (copy, chunk);
 			count = chunk;
 		} else {
+			lock_acquire (&filesys_lock);
 			if (entry->position >= (uint32_t) file_length (file))
 				count = 0;
 			else {
@@ -308,6 +318,7 @@ sys_write (int fd, const void *buffer, unsigned size) {
 				if (count > 0)
 					entry->position += count;
 			}
+			lock_release (&filesys_lock);
 		}
 		if (count <= 0)
 			break;
@@ -315,8 +326,6 @@ sys_write (int fd, const void *buffer, unsigned size) {
 		if ((size_t) count < chunk)
 			break;
 	}
-	if (file != NULL)
-		lock_release (&filesys_lock);
 	palloc_free_page (copy);
 	return total;
 }

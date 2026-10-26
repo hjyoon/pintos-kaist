@@ -56,8 +56,11 @@ uninit_initialize (struct page *page, void *kva) {
 	enum vm_type type = uninit->type;
 	bool (*initializer) (struct page *, enum vm_type, void *) =
 		uninit->page_initializer;
-	bool success = initializer (page, type, kva) &&
-	               (init == NULL || init (page, aux));
+	bool initialized = initializer (page, type, kva);
+	/* A failed type allocation must retain the lazy callback and its AUX. */
+	if (!initialized && page->operations->type == VM_UNINIT)
+		return false;
+	bool success = initialized && (init == NULL || init (page, aux));
 	if (aux != NULL) {
 		struct lazy_load_info *info = aux;
 		lock_acquire (&filesys_lock);

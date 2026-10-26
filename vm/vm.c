@@ -10,7 +10,7 @@
 #include "userprog/syscall.h"
 
 static struct list frames;
-static struct lock frames_lock;
+static struct lock vm_lock;
 
 static uint64_t page_hash (const struct hash_elem *, void *);
 static bool page_less (const struct hash_elem *, const struct hash_elem *, void *);
@@ -28,7 +28,7 @@ vm_init (void) {
 	register_inspect_intr ();
 	/* DO NOT MODIFY UPPER LINES. */
 	list_init (&frames);
-	lock_init (&frames_lock);
+	lock_init (&vm_lock);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -72,6 +72,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		return false;
 	uninit_new (page, upage, init, type, aux, initializer);
 	page->writable = writable;
+	page->pml4 = thread_current ()->pml4;
 	if (!spt_insert_page (spt, page)) {
 		/* On failure the caller still owns AUX. */
 		free (page);
@@ -123,9 +124,7 @@ destroy_spt_page (struct hash_elem *elem, void *aux UNUSED) {
 	struct frame *frame = page->frame;
 	void *va = page->va;
 	if (frame != NULL) {
-		lock_acquire (&frames_lock);
 		list_remove (&frame->elem);
-		lock_release (&frames_lock);
 	}
 	vm_dealloc_page (page);
 	if (frame != NULL) {
@@ -138,33 +137,50 @@ destroy_spt_page (struct hash_elem *elem, void *aux UNUSED) {
 
 void
 spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
+	lock_acquire (&vm_lock);
 	if (page != NULL && spt_find_page (spt, page->va) == page) {
 		hash_delete (&spt->pages, &page->spt_elem);
 		destroy_spt_page (&page->spt_elem, NULL);
 	}
+	lock_release (&vm_lock);
 }
 
-/* Get the struct frame, that will be evicted. */
+/* Second-chance clock, rotating the list instead of retaining stale cursors. */
 static struct frame *
 vm_get_victim (void) {
-	struct frame *victim = NULL;
-	 /* TODO: The policy for eviction is up to you. */
-
-	return victim;
-}
-
-/* Evict one page and return the corresponding frame.
- * Return NULL on error.*/
-static struct frame *
-vm_evict_frame (void) {
-	struct frame *victim UNUSED = vm_get_victim ();
-	/* TODO: swap out the victim and return the evicted frame. */
-
+	size_t attempts = list_size (&frames) * 2;
+	while (attempts-- > 0) {
+		struct frame *frame = list_entry (list_pop_front (&frames), struct frame, elem);
+		list_push_back (&frames, &frame->elem);
+		if (frame->pins != 0)
+			continue;
+		if (pml4_is_accessed (frame->page->pml4, frame->page->va)) {
+			pml4_set_accessed (frame->page->pml4, frame->page->va, false);
+			continue;
+		}
+		return frame;
+	}
 	return NULL;
 }
 
-/* Allocate metadata and a zeroed user-pool frame.  Eviction is added in
-   the swapping stage; exhaustion currently fails without leaking resources. */
+static struct frame *
+vm_evict_frame (void) {
+	/* If swap is full a file-backed victim may still be reclaimable. */
+	size_t attempts = list_size (&frames);
+	while (attempts-- > 0) {
+		struct frame *victim = vm_get_victim ();
+		if (victim == NULL)
+			break;
+		if (!swap_out (victim->page))
+			continue;
+		victim->page->frame = NULL;
+		victim->page = NULL;
+		return victim;
+	}
+	return NULL;
+}
+
+/* Called with vm_lock held; returned frames are not evictable until publish. */
 static struct frame *
 vm_get_frame (void) {
 	struct frame *frame = calloc (1, sizeof *frame);
@@ -173,7 +189,9 @@ vm_get_frame (void) {
 	frame->kva = palloc_get_page (PAL_USER | PAL_ZERO);
 	if (frame->kva == NULL) {
 		free (frame);
-		return NULL;
+		frame = vm_evict_frame ();
+		if (frame != NULL)
+			memset (frame->kva, 0, PGSIZE);
 	}
 	return frame;
 }
@@ -190,8 +208,10 @@ vm_stack_growth (void *addr) {
 		void *next = (void *) (bottom - PGSIZE);
 		if (!vm_alloc_page (VM_ANON | VM_MARKER_0, next, true))
 			return;
-		if (!vm_claim_page (next)) {
-			spt_remove_page (&current->spt, spt_find_page (&current->spt, next));
+		if (!vm_do_claim_page (spt_find_page (&current->spt, next))) {
+			struct page *page = spt_find_page (&current->spt, next);
+			hash_delete (&current->spt.pages, &page->spt_elem);
+			destroy_spt_page (&page->spt_elem, NULL);
 			return;
 		}
 		bottom -= PGSIZE;
@@ -207,8 +227,8 @@ vm_handle_wp (struct page *page UNUSED) {
 }
 
 /* Return true on success */
-bool
-vm_try_handle_fault (struct intr_frame *f, void *addr,
+static bool
+handle_fault (struct intr_frame *f, void *addr,
 		bool user, bool write, bool not_present) {
 	struct thread *current = thread_current ();
 	if (!not_present || addr == NULL || !is_user_vaddr (addr))
@@ -230,6 +250,74 @@ vm_try_handle_fault (struct intr_frame *f, void *addr,
 	return vm_do_claim_page (page);
 }
 
+bool
+vm_try_handle_fault (struct intr_frame *f, void *addr, bool user,
+                     bool write, bool not_present) {
+	lock_acquire (&vm_lock);
+	bool success = handle_fault (f, addr, user, write, not_present);
+	lock_release (&vm_lock);
+	return success;
+}
+
+/* Validate metadata without faulting the entire range into physical memory. */
+bool
+vm_user_buffer_valid (const void *buffer, size_t size, bool writable) {
+	if (size == 0)
+		return true;
+	uintptr_t start = (uintptr_t) buffer;
+	if (buffer == NULL || !is_user_vaddr (buffer) || size > KERN_BASE - start)
+		return false;
+	lock_acquire (&vm_lock);
+	bool valid = true;
+	uintptr_t last = (uintptr_t) pg_round_down (start + size - 1);
+	for (uintptr_t va = (uintptr_t) pg_round_down (start);; va += PGSIZE) {
+		struct page *page = spt_find_page (&thread_current ()->spt, (void *) va);
+		if (page == NULL) {
+			void *fault = (void *) (va < start ? start : va);
+			if (handle_fault (NULL, fault, false, writable, true))
+				page = spt_find_page (&thread_current ()->spt, (void *) va);
+		}
+		if (page == NULL || (writable && !page->writable)) {
+			valid = false;
+			break;
+		}
+		if (va == last)
+			break;
+	}
+	lock_release (&vm_lock);
+	return valid;
+}
+
+/* User I/O touches one resident page at a time, with no filesystem lock held.
+   vm_lock prevents eviction while the kernel copies through the frame alias. */
+bool
+vm_copy_user (void *kernel, void *user, size_t size, bool to_user) {
+	lock_acquire (&vm_lock);
+	bool success = true;
+	while (size > 0) {
+		struct page *page = spt_find_page (&thread_current ()->spt, user);
+		if (page == NULL || (to_user && !page->writable) || !vm_do_claim_page (page)) {
+			success = false;
+			break;
+		}
+		size_t bytes = PGSIZE - pg_ofs (user);
+		if (bytes > size)
+			bytes = size;
+		void *alias = (uint8_t *) page->frame->kva + pg_ofs (user);
+		if (to_user) {
+			memcpy (alias, kernel, bytes);
+			pml4_set_dirty (page->pml4, page->va, true);
+		} else
+			memcpy (kernel, alias, bytes);
+		pml4_set_accessed (page->pml4, page->va, true);
+		user = (uint8_t *) user + bytes;
+		kernel = (uint8_t *) kernel + bytes;
+		size -= bytes;
+	}
+	lock_release (&vm_lock);
+	return success;
+}
+
 /* Free the page.
  * DO NOT MODIFY THIS FUNCTION. */
 void
@@ -241,15 +329,18 @@ vm_dealloc_page (struct page *page) {
 /* Claim an existing SPT entry; an absent entry is never implicitly created. */
 bool
 vm_claim_page (void *va) {
+	lock_acquire (&vm_lock);
 	struct page *page = spt_find_page (&thread_current ()->spt, va);
-	return page != NULL && vm_do_claim_page (page);
+	bool success = page != NULL && vm_do_claim_page (page);
+	lock_release (&vm_lock);
+	return success;
 }
 
 /* Claim PAGE and set up the MMU.  Only publish a resident frame after both
    mapping and initialization succeed.  Roll back every acquired resource. */
 static bool
 vm_do_claim_page (struct page *page) {
-	uint64_t *pml4 = thread_current ()->pml4;
+	uint64_t *pml4 = page != NULL ? page->pml4 : NULL;
 	if (page == NULL || pml4 == NULL || page->operations == NULL ||
 	    page->operations->swap_in == NULL)
 		return false;
@@ -271,12 +362,15 @@ vm_do_claim_page (struct page *page) {
 		pml4_clear_page (pml4, page->va);
 		goto fail;
 	}
-	lock_acquire (&frames_lock);
-	list_push_back (&frames, &frame->elem);
-	lock_release (&frames_lock);
+	if (!frame->listed) {
+		list_push_back (&frames, &frame->elem);
+		frame->listed = true;
+	}
 	return true;
 
 fail:
+	if (frame->listed)
+		list_remove (&frame->elem);
 	page->frame = NULL;
 	frame->page = NULL;
 	palloc_free_page (frame->kva);
@@ -291,8 +385,8 @@ supplemental_page_table_init (struct supplemental_page_table *spt) {
 }
 
 /* Preserve lazy backing references and copy resident contents independently. */
-bool
-supplemental_page_table_copy (struct supplemental_page_table *dst,
+static bool
+copy_spt (struct supplemental_page_table *dst,
 		struct supplemental_page_table *src) {
 	if (!dst->initialized || !src->initialized || !hash_empty (&dst->pages))
 		return false;
@@ -342,8 +436,16 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 					return false;
 				}
 			}
-			if (source->frame == NULL ||
-			    !vm_alloc_page_with_initializer (type, source->va,
+			if (!vm_do_claim_page (source)) {
+				if (info != NULL) {
+					lock_acquire (&filesys_lock);
+					file_close (info->file);
+					lock_release (&filesys_lock);
+					free (info);
+				}
+				return false;
+			}
+			if (!vm_alloc_page_with_initializer (type, source->va,
 			                                    source->writable, NULL, info)) {
 				if (info != NULL) {
 					lock_acquire (&filesys_lock);
@@ -353,9 +455,12 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 				}
 				return false;
 			}
-			if (!vm_claim_page (source->va))
-				return false;
+			source->frame->pins++;
 			struct page *copy = spt_find_page (dst, source->va);
+			bool claimed = vm_do_claim_page (copy);
+			source->frame->pins--;
+			if (!claimed)
+				return false;
 			memcpy (copy->frame->kva, source->frame->kva, PGSIZE);
 			if (type == VM_FILE)
 				pml4_set_dirty (copy->frame->pml4, copy->va,
@@ -368,11 +473,22 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 	return true;
 }
 
+bool
+supplemental_page_table_copy (struct supplemental_page_table *dst,
+                             struct supplemental_page_table *src) {
+	lock_acquire (&vm_lock);
+	bool success = copy_spt (dst, src);
+	lock_release (&vm_lock);
+	return success;
+}
+
 /* Destroy mappings before process_cleanup destroys their owning PML4. */
 void
 supplemental_page_table_kill (struct supplemental_page_table *spt) {
+	lock_acquire (&vm_lock);
 	if (spt->initialized) {
 		hash_destroy (&spt->pages, destroy_spt_page);
 		spt->initialized = false;
 	}
+	lock_release (&vm_lock);
 }

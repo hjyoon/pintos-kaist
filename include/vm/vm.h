@@ -46,6 +46,7 @@ struct page {
 	void *va;              /* Address in terms of user space */
 	struct frame *frame;   /* Back reference for frame */
 
+	uint64_t *pml4;        /* Owning process page table. */
 	bool writable;         /* Original mapping permissions. */
 	struct hash_elem spt_elem;
 	void *mapping_start;   /* NULL for pages outside mmap regions. */
@@ -69,6 +70,8 @@ struct frame {
 	struct page *page;
 	uint64_t *pml4;        /* Page table owning this mapping. */
 	struct list_elem elem; /* Global resident-frame list. */
+	unsigned pins;        /* Temporary eviction exclusion. */
+	bool listed;
 };
 
 /* The function table for page operations.
@@ -116,5 +119,7 @@ bool vm_alloc_page_with_initializer (enum vm_type type, void *upage,
 void vm_dealloc_page (struct page *page);
 bool vm_claim_page (void *va);
 enum vm_type page_get_type (struct page *page);
+bool vm_user_buffer_valid (const void *buffer, size_t size, bool writable);
+bool vm_copy_user (void *kernel, void *user, size_t size, bool to_user);
 
 #endif  /* VM_VM_H */

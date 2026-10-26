@@ -71,6 +71,7 @@ setup_arguments (int argc, char **argv, void **rsp) {
 
 static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
+static bool setup_stack (struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
 
@@ -399,6 +400,10 @@ process_exec (void *f_name) {
 	thread_current ()->executable = NULL;
 	bool loaded = load (argv[0], &_if);
 	lock_release (&filesys_lock);
+#ifdef VM
+	if (loaded && !setup_stack (&_if))
+		loaded = false;
+#endif
 	/* Avoid passing the address of a packed integer field as void **. */
 	void *stack_pointer = (void *) _if.rsp;
 	if (!loaded || !setup_arguments (argc, argv, &stack_pointer)) {
@@ -661,9 +666,11 @@ load (const char *file_name, struct intr_frame *if_) {
 		}
 	}
 
-	/* Set up stack. */
+#ifndef VM
+	/* VM frames can require file-backed eviction; allocate after unlocking. */
 	if (!setup_stack (if_))
 		goto done;
+#endif
 
 	/* Start address. */
 	if_->rip = ehdr.e_entry;

@@ -4,7 +4,9 @@
 struct page;
 enum vm_type;
 
+struct anon_backing;
 struct anon_page {
+	struct anon_backing *backing;
 };
 
 void vm_anon_init (void);
