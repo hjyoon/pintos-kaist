@@ -6,6 +6,7 @@
 #include "filesys/filesys.h"
 #include "filesys/free-map.h"
 #include "threads/malloc.h"
+#include "threads/synch.h"
 #include "filesys/page_cache.h"
 #ifdef EFILESYS
 #include "filesys/fat.h"
@@ -45,23 +46,17 @@ struct inode {
 	bool removed;                       /* True if deleted, false otherwise. */
 	int deny_write_cnt;                 /* 0: writes ok, >0: deny writes. */
 	struct inode_data data;             /* Interpreted inode fields. */
+	struct lock data_lock;             /* Chain changes and length publication. */
 #ifdef EFILESYS
 	cluster_t cached_cluster;          /* Sequential chain traversal hint. */
 	size_t cached_index;
 #endif
 };
 
-/* Returns the disk sector that contains byte offset POS within
- * INODE.
- * Returns -1 if INODE does not contain data for a byte at offset
- * POS. */
-static disk_sector_t
-byte_to_sector (struct inode *inode, off_t pos) {
-	ASSERT (inode != NULL);
-	if (pos < 0 || pos >= inode->data.length)
-		return (disk_sector_t) -1;
 #ifdef EFILESYS
-	size_t target = pos / DISK_SECTOR_SIZE;
+/* Resolve reserved chain entries too, before a growing write publishes EOF. */
+static disk_sector_t
+index_to_sector (struct inode *inode, size_t target) {
 	cluster_t cluster = inode->data.start;
 	size_t index = 0;
 	if (inode->cached_cluster != 0 && inode->cached_index <= target) {
@@ -70,13 +65,51 @@ byte_to_sector (struct inode *inode, off_t pos) {
 	}
 	while (index < target) {
 		cluster = fat_get (cluster);
-		if (cluster == 0 || cluster == EOChain)
-			return (disk_sector_t) -1;
+		ASSERT (cluster != 0 && cluster != EOChain);
 		index++;
 	}
 	inode->cached_cluster = cluster;
 	inode->cached_index = target;
 	return cluster_to_sector (cluster);
+}
+
+/* Reserve and zero the complete extension before changing existing data.
+   Failure removes only the newly allocated suffix and preserves the old EOF. */
+static bool
+reserve_extension (struct inode *inode, off_t end) {
+	size_t old_count = bytes_to_sectors (inode->data.length);
+	size_t new_count = bytes_to_sectors (end);
+	if (new_count <= old_count)
+		return true;
+	cluster_t old_tail = old_count == 0 ? 0 :
+	                     sector_to_cluster (index_to_sector (inode, old_count - 1));
+	cluster_t tail = old_tail, first = 0;
+	static const uint8_t zeros[DISK_SECTOR_SIZE];
+	for (size_t count = old_count; count < new_count; count++) {
+		cluster_t next = fat_create_chain (tail);
+		if (next == 0) {
+			fat_remove_chain (first, old_tail);
+			return false;
+		}
+		if (first == 0)
+			first = next;
+		tail = next;
+		buffer_cache_write (cluster_to_sector (next), zeros, 0, DISK_SECTOR_SIZE);
+	}
+	if (old_count == 0)
+		inode->data.start = first;
+	return true;
+}
+#endif
+
+/* Returns the sector containing POS, or -1 beyond the published file length. */
+static disk_sector_t
+byte_to_sector (struct inode *inode, off_t pos) {
+	ASSERT (inode != NULL);
+	if (pos < 0 || pos >= inode->data.length)
+		return (disk_sector_t) -1;
+#ifdef EFILESYS
+	return index_to_sector (inode, pos / DISK_SECTOR_SIZE);
 #else
 	return inode->data.start + pos / DISK_SECTOR_SIZE;
 #endif
@@ -178,6 +211,7 @@ inode_open (disk_sector_t sector) {
 	inode->open_cnt = 1;
 	inode->deny_write_cnt = 0;
 	inode->removed = false;
+	lock_init (&inode->data_lock);
 	buffer_cache_read (inode->sector, &inode->data, 0, sizeof inode->data);
 #ifdef EFILESYS
 	if (inode->data.magic != INODE_MAGIC || inode->data.length < 0 ||
@@ -250,6 +284,9 @@ inode_remove (struct inode *inode) {
 off_t
 inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset) {
 	uint8_t *buffer = buffer_;
+	if (offset < 0 || size <= 0)
+		return 0;
+	lock_acquire (&inode->data_lock);
 	off_t bytes_read = 0;
 	while (size > 0) {
 		disk_sector_t sector = byte_to_sector (inode, offset);
@@ -269,6 +306,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset) {
 		bytes_read += bytes;
 	}
 
+	lock_release (&inode->data_lock);
 	return bytes_read;
 }
 
@@ -276,11 +314,12 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset) {
    metadata do not speculatively read unrelated blocks into the data cache. */
 void
 inode_readahead (struct inode *inode, off_t offset) {
+	lock_acquire (&inode->data_lock);
 	if (offset < 0 || offset >= inode_length (inode))
-		return;
+		goto out;
 	off_t next_offset = offset - offset % DISK_SECTOR_SIZE + DISK_SECTOR_SIZE;
 	if (next_offset >= inode_length (inode))
-		return;
+		goto out;
 	disk_sector_t sector = byte_to_sector (inode, offset);
 #ifdef EFILESYS
 	cluster_t next = fat_get (sector_to_cluster (sector));
@@ -289,27 +328,53 @@ inode_readahead (struct inode *inode, off_t offset) {
 #else
 	buffer_cache_readahead (sector + 1);
 #endif
+out:
+	lock_release (&inode->data_lock);
 }
 
-/* Writes SIZE bytes from BUFFER into INODE, starting at OFFSET.
- * Returns the number of bytes actually written, which may be
- * less than SIZE if end of file is reached or an error occurs.
- * (Normally a write at end of file would extend the inode, but
- * growth is not yet implemented.) */
+/* Growing writes reserve all storage first and publish their new EOF only
+   after zero-filling the gap and copying data. Readers share data_lock. */
 off_t
 inode_write_at (struct inode *inode, const void *buffer_, off_t size,
-		off_t offset) {
+                off_t offset) {
 	const uint8_t *buffer = buffer_;
+	if (offset < 0 || size <= 0)
+		return 0;
+	lock_acquire (&inode->data_lock);
 	off_t bytes_written = 0;
 	if (inode->deny_write_cnt)
-		return 0;
+		goto out;
+#ifdef EFILESYS
+	if ((uint64_t) offset + (uint64_t) size > INT32_MAX)
+		goto out;
+	off_t end = offset + size;
+	if (!reserve_extension (inode, end))
+		goto out;
+	/* Newly reserved sectors are already zero. Only the old partial sector
+	   can contain a gap that still needs initialization. */
+	if (offset > inode->data.length && inode->data.length % DISK_SECTOR_SIZE != 0) {
+		size_t within = inode->data.length % DISK_SECTOR_SIZE;
+		size_t gap = offset - inode->data.length;
+		if (gap > DISK_SECTOR_SIZE - within)
+			gap = DISK_SECTOR_SIZE - within;
+		static const uint8_t zeros[DISK_SECTOR_SIZE];
+		buffer_cache_write (index_to_sector (inode, inode->data.length / DISK_SECTOR_SIZE),
+		                    zeros, within, gap);
+	}
+#endif
 	while (size > 0) {
+#ifdef EFILESYS
+		disk_sector_t sector = index_to_sector (inode, offset / DISK_SECTOR_SIZE);
+#else
 		disk_sector_t sector = byte_to_sector (inode, offset);
+#endif
 		size_t within = offset % DISK_SECTOR_SIZE;
-		off_t remaining = inode_length (inode) - offset;
 		off_t bytes = DISK_SECTOR_SIZE - within;
+#ifndef EFILESYS
+		off_t remaining = inode_length (inode) - offset;
 		if (bytes > remaining)
 			bytes = remaining;
+#endif
 		if (bytes > size)
 			bytes = size;
 		if (bytes <= 0)
@@ -319,7 +384,14 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 		offset += bytes;
 		bytes_written += bytes;
 	}
-
+#ifdef EFILESYS
+	if (end > inode->data.length) {
+		inode->data.length = end;
+		buffer_cache_write (inode->sector, &inode->data, 0, sizeof inode->data);
+	}
+#endif
+out:
+	lock_release (&inode->data_lock);
 	return bytes_written;
 }
 
@@ -328,8 +400,10 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 	void
 inode_deny_write (struct inode *inode) 
 {
+	lock_acquire (&inode->data_lock);
 	inode->deny_write_cnt++;
 	ASSERT (inode->deny_write_cnt <= inode->open_cnt);
+	lock_release (&inode->data_lock);
 }
 
 /* Re-enables writes to INODE.
@@ -337,9 +411,11 @@ inode_deny_write (struct inode *inode)
  * inode_deny_write() on the inode, before closing the inode. */
 void
 inode_allow_write (struct inode *inode) {
+	lock_acquire (&inode->data_lock);
 	ASSERT (inode->deny_write_cnt > 0);
 	ASSERT (inode->deny_write_cnt <= inode->open_cnt);
 	inode->deny_write_cnt--;
+	lock_release (&inode->data_lock);
 }
 
 /* Returns the length, in bytes, of INODE's data. */

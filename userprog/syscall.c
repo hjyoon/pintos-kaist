@@ -314,7 +314,12 @@ sys_write (int fd, const void *buffer, unsigned size) {
 			count = chunk;
 		} else {
 			lock_acquire (&filesys_lock);
-			if (entry->position >= (uint32_t) file_length (file))
+			/* Keep the unsigned descriptor position out of signed inode offsets. */
+			bool valid_position = entry->position <= INT32_MAX;
+#ifndef EFILESYS
+			valid_position = valid_position && entry->position < (uint32_t) file_length (file);
+#endif
+			if (!valid_position)
 				count = 0;
 			else {
 				count = file_write_at (file, copy, chunk, (off_t) entry->position);
