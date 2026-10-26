@@ -4,7 +4,13 @@
 #include <list.h>
 #include "filesys/filesys.h"
 #include "filesys/inode.h"
+#ifdef EFILESYS
+#include "filesys/fat.h"
+#endif
 #include "threads/malloc.h"
+#include "threads/palloc.h"
+#include "threads/thread.h"
+#include "threads/vaddr.h"
 
 /* A directory. */
 struct dir {
@@ -19,19 +25,30 @@ struct dir_entry {
 	bool in_use;                        /* In use or free? */
 };
 
+static bool read_next_unlocked (struct inode *, off_t *, char [NAME_MAX + 1]);
+
 /* Creates a directory with space for ENTRY_CNT entries in the
  * given SECTOR.  Returns true if successful, false on failure. */
 bool
 dir_create (disk_sector_t sector, size_t entry_cnt) {
-	return inode_create (sector, entry_cnt * sizeof (struct dir_entry));
+	FILESYS_OPERATION;
+	return dir_create_at (sector, entry_cnt, sector);
+}
+
+/* Parent identity is metadata, so . and .. need no visible directory slots. */
+bool
+dir_create_at (disk_sector_t sector, size_t entry_cnt, disk_sector_t parent) {
+	FILESYS_OPERATION;
+	return inode_create_directory (sector, entry_cnt * sizeof (struct dir_entry), parent);
 }
 
 /* Opens and returns the directory for the given INODE, of which
  * it takes ownership.  Returns a null pointer on failure. */
 struct dir *
 dir_open (struct inode *inode) {
+	FILESYS_OPERATION;
 	struct dir *dir = calloc (1, sizeof *dir);
-	if (inode != NULL && dir != NULL) {
+	if (inode != NULL && inode_is_directory (inode) && dir != NULL) {
 		dir->inode = inode;
 		dir->pos = 0;
 		return dir;
@@ -46,19 +63,26 @@ dir_open (struct inode *inode) {
  * Return true if successful, false on failure. */
 struct dir *
 dir_open_root (void) {
+	FILESYS_OPERATION;
+#ifdef EFILESYS
+	return dir_open (inode_open (cluster_to_sector (ROOT_DIR_CLUSTER)));
+#else
 	return dir_open (inode_open (ROOT_DIR_SECTOR));
+#endif
 }
 
 /* Opens and returns a new directory for the same inode as DIR.
  * Returns a null pointer on failure. */
 struct dir *
 dir_reopen (struct dir *dir) {
-	return dir_open (inode_reopen (dir->inode));
+	FILESYS_OPERATION;
+	return dir != NULL ? dir_open (inode_reopen (dir->inode)) : NULL;
 }
 
 /* Destroys DIR and frees associated resources. */
 void
 dir_close (struct dir *dir) {
+	FILESYS_OPERATION;
 	if (dir != NULL) {
 		inode_close (dir->inode);
 		free (dir);
@@ -101,14 +125,28 @@ lookup (const struct dir *dir, const char *name,
  * and returns true if one exists, false otherwise.
  * On success, sets *INODE to an inode for the file, otherwise to
  * a null pointer.  The caller must close *INODE. */
-bool
-dir_lookup (const struct dir *dir, const char *name,
+static bool
+lookup_inode (const struct dir *dir, const char *name,
 		struct inode **inode) {
+	FILESYS_OPERATION;
 	struct dir_entry e;
 
 	ASSERT (dir != NULL);
 	ASSERT (name != NULL);
 
+	if (inode_is_removed (dir->inode)) {
+		*inode = NULL;
+		return false;
+	}
+	if (!strcmp (name, ".")) {
+		*inode = inode_reopen (dir->inode);
+		return *inode != NULL;
+	}
+	if (!strcmp (name, "..")) {
+		disk_sector_t parent = inode_get_parent (dir->inode);
+		*inode = parent != 0 ? inode_open (parent) : NULL;
+		return *inode != NULL;
+	}
 	if (lookup (dir, name, &e, NULL))
 		*inode = inode_open (e.inode_sector);
 	else
@@ -123,8 +161,9 @@ dir_lookup (const struct dir *dir, const char *name,
  * Returns true if successful, false on failure.
  * Fails if NAME is invalid (i.e. too long) or a disk or memory
  * error occurs. */
-bool
-dir_add (struct dir *dir, const char *name, disk_sector_t inode_sector) {
+static bool
+add_entry (struct dir *dir, const char *name, disk_sector_t inode_sector) {
+	FILESYS_OPERATION;
 	struct dir_entry e;
 	off_t ofs;
 	bool success = false;
@@ -133,7 +172,8 @@ dir_add (struct dir *dir, const char *name, disk_sector_t inode_sector) {
 	ASSERT (name != NULL);
 
 	/* Check NAME for validity. */
-	if (*name == '\0' || strlen (name) > NAME_MAX)
+	if (*name == '\0' || strlen (name) > NAME_MAX || strchr (name, '/') != NULL ||
+	    !strcmp (name, ".") || !strcmp (name, "..") || inode_is_removed (dir->inode))
 		return false;
 
 	/* Check that NAME is not in use. */
@@ -165,24 +205,39 @@ done:
 /* Removes any entry for NAME in DIR.
  * Returns true if successful, false on failure,
  * which occurs only if there is no file with the given NAME. */
-bool
-dir_remove (struct dir *dir, const char *name) {
+static bool
+remove_entry (struct dir *dir, const char *name, bool directory_only) {
+	FILESYS_OPERATION;
 	struct dir_entry e;
 	struct inode *inode = NULL;
 	bool success = false;
+	bool child_locked = false;
 	off_t ofs;
 
 	ASSERT (dir != NULL);
 	ASSERT (name != NULL);
 
 	/* Find directory entry. */
-	if (!lookup (dir, name, &e, &ofs))
+	if (inode_is_removed (dir->inode) || !strcmp (name, ".") ||
+	    !strcmp (name, "..") || !lookup (dir, name, &e, &ofs))
 		goto done;
 
 	/* Open inode. */
 	inode = inode_open (e.inode_sector);
-	if (inode == NULL)
+	if (inode == NULL || (directory_only && !inode_is_directory (inode)))
 		goto done;
+
+	if (inode_is_directory (inode)) {
+		inode_lock_directory (inode);
+		child_locked = true;
+		/* Open directories may be unlinked, but must first be empty. The
+		   inode stays allocated until its last descriptor or CWD closes. */
+		char child[NAME_MAX + 1];
+		off_t position = 0;
+		if (inode_get_inumber (inode) == inode_get_parent (inode) ||
+		    read_next_unlocked (inode, &position, child))
+			goto done;
+	}
 
 	/* Erase directory entry. */
 	e.in_use = false;
@@ -194,6 +249,8 @@ dir_remove (struct dir *dir, const char *name) {
 	success = true;
 
 done:
+	if (child_locked)
+		inode_unlock_directory (inode);
 	inode_close (inode);
 	return success;
 }
@@ -203,14 +260,192 @@ done:
  * contains no more entries. */
 bool
 dir_readdir (struct dir *dir, char name[NAME_MAX + 1]) {
+	return dir_read_next (dir->inode, &dir->pos, name);
+}
+
+/* Descriptors keep their own cursor, shared by dup2 aliases and copied on
+   fork. CWD handles never need to share a descriptor's enumeration state. */
+static bool
+read_next_unlocked (struct inode *inode, off_t *position, char name[NAME_MAX + 1]) {
+	FILESYS_OPERATION;
 	struct dir_entry e;
 
-	while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e) {
-		dir->pos += sizeof e;
-		if (e.in_use) {
+	if (!inode_is_directory (inode) || inode_is_removed (inode))
+		return false;
+	while (inode_read_at (inode, &e, sizeof e, *position) == sizeof e) {
+		*position += sizeof e;
+		if (e.in_use && strcmp (e.name, ".") && strcmp (e.name, "..")) {
 			strlcpy (name, e.name, NAME_MAX + 1);
 			return true;
 		}
 	}
 	return false;
+}
+
+/* Parse one bounded component without placing the whole path on the stack. */
+static int
+next_component (const char **path, char name[NAME_MAX + 1]) {
+	const char *cursor = *path;
+	while (*cursor == '/')
+		cursor++;
+	if (*cursor == '\0')
+		return 0;
+	size_t length = 0;
+	while (*cursor != '\0' && *cursor != '/') {
+		if (length == NAME_MAX)
+			return -1;
+		name[length++] = *cursor++;
+	}
+	name[length] = '\0';
+	*path = cursor;
+	return 1;
+}
+
+/* Resolve iteratively so links cannot consume the small kernel stack. A
+   relative target starts at its containing directory; the untouched suffix
+   also preserves trailing slashes and the order of . and .. traversal.
+   Each lookup acquires its directory lock and pins the resulting inode.
+   RESULT requests following the final link;
+   creation and unlink instead stop at the original final directory entry. */
+static struct dir *
+resolve_path (const char *path, char name[NAME_MAX + 1], struct inode **result) {
+	if (path == NULL || *path == '\0' || strnlen (path, PGSIZE) == PGSIZE)
+		return NULL;
+	struct dir *current = NULL;
+	char *pending = NULL;
+	unsigned links = 0;
+#ifdef USERPROG
+	if (*path != '/' && thread_current ()->cwd != NULL)
+		current = dir_reopen (thread_current ()->cwd);
+	else
+#endif
+		current = dir_open_root ();
+	if (current == NULL)
+		return NULL;
+	if (inode_is_removed (dir_get_inode (current)))
+		goto fail;
+	for (;;) {
+		int component = next_component (&path, name);
+		if (component < 0)
+			goto fail;
+		if (component == 0)
+			strlcpy (name, ".", NAME_MAX + 1);
+		const char *suffix = path;
+		while (*path == '/')
+			path++;
+		bool last = *path == '\0';
+		if (last && result == NULL) {
+			palloc_free_page (pending);
+			return current;
+		}
+		struct inode *inode = NULL;
+		if (!dir_lookup (current, name, &inode))
+			goto fail;
+		if (inode_is_symlink (inode)) {
+			off_t length = inode_length (inode);
+			size_t remaining = strlen (suffix);
+			if (++links > 40 || length <= 0 || length >= PGSIZE ||
+			    remaining > PGSIZE - 1 - (size_t) length) {
+				inode_close (inode);
+				goto fail;
+			}
+			char *expanded = palloc_get_page (0);
+			if (expanded == NULL) {
+				inode_close (inode);
+				goto fail;
+			}
+			bool read = inode_read_at (inode, expanded, length, 0) == length;
+			inode_close (inode);
+			if (!read || memchr (expanded, '\0', length) != NULL) {
+				palloc_free_page (expanded);
+				goto fail;
+			}
+			memcpy (expanded + length, suffix, remaining + 1);
+			if (*expanded == '/') {
+				struct dir *root = dir_open_root ();
+				if (root == NULL) {
+					palloc_free_page (expanded);
+					goto fail;
+				}
+				dir_close (current);
+				current = root;
+			}
+			palloc_free_page (pending);
+			pending = expanded;
+			path = pending;
+			continue;
+		}
+		if (last) {
+			if (*suffix == '/' && !inode_is_directory (inode)) {
+				inode_close (inode);
+				goto fail;
+			}
+			*result = inode;
+			palloc_free_page (pending);
+			return current;
+		}
+		struct dir *next = dir_open (inode);
+		if (next == NULL)
+			goto fail;
+		dir_close (current);
+		current = next;
+	}
+fail:
+	palloc_free_page (pending);
+	dir_close (current);
+	return NULL;
+}
+
+struct dir *
+dir_resolve_parent (const char *path, char name[NAME_MAX + 1]) {
+	FILESYS_OPERATION;
+	return resolve_path (path, name, NULL);
+}
+
+struct inode *
+dir_resolve_inode (const char *path) {
+	FILESYS_OPERATION;
+	char name[NAME_MAX + 1];
+	struct inode *inode = NULL;
+	struct dir *parent = resolve_path (path, name, &inode);
+	dir_close (parent);
+	return inode;
+}
+
+bool
+dir_lookup (const struct dir *dir, const char *name, struct inode **inode) {
+	FILESYS_OPERATION;
+	inode_lock_directory (dir->inode);
+	bool success = lookup_inode (dir, name, inode);
+	inode_unlock_directory (dir->inode);
+	return success;
+}
+
+bool
+dir_add (struct dir *dir, const char *name, disk_sector_t sector) {
+	FILESYS_OPERATION;
+	inode_lock_directory (dir->inode);
+	bool success = add_entry (dir, name, sector);
+	inode_unlock_directory (dir->inode);
+	return success;
+}
+
+bool
+dir_remove (struct dir *dir, const char *name, bool directory_only) {
+	FILESYS_OPERATION;
+	/* Only real child directories are locked while holding their parent.
+	   Links are unlinked themselves, and . and .. are never removable. */
+	inode_lock_directory (dir->inode);
+	bool success = remove_entry (dir, name, directory_only);
+	inode_unlock_directory (dir->inode);
+	return success;
+}
+
+bool
+dir_read_next (struct inode *inode, off_t *position, char name[NAME_MAX + 1]) {
+	FILESYS_OPERATION;
+	inode_lock_directory (inode);
+	bool success = read_next_unlocked (inode, position, name);
+	inode_unlock_directory (inode);
+	return success;
 }

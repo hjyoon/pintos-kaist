@@ -1,11 +1,19 @@
 #ifndef VM_UNINIT_H
 #define VM_UNINIT_H
 #include "vm/vm.h"
+#include "filesys/file.h"
 
 struct page;
 enum vm_type;
 
 typedef bool vm_initializer (struct page *, void *aux);
+
+/* Owned backing reference for a pending file read. */
+struct lazy_load_info {
+	struct file *file;
+	off_t offset;
+	size_t read_bytes;
+};
 
 /* Uninitlialized page. The type for implementing the
  * "Lazy loading". */

@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include "devices/disk.h"
+#include "filesys/off_t.h"
 
 /* Maximum length of a file name component.
  * This is the traditional UNIX maximum length.
@@ -15,6 +16,9 @@ struct inode;
 
 /* Opening and closing directories. */
 bool dir_create (disk_sector_t sector, size_t entry_cnt);
+bool dir_create_at (disk_sector_t sector, size_t entry_cnt, disk_sector_t parent);
+struct dir *dir_resolve_parent (const char *path, char name[NAME_MAX + 1]);
+struct inode *dir_resolve_inode (const char *path);
 struct dir *dir_open (struct inode *);
 struct dir *dir_open_root (void);
 struct dir *dir_reopen (struct dir *);
@@ -24,7 +28,8 @@ struct inode *dir_get_inode (struct dir *);
 /* Reading and writing. */
 bool dir_lookup (const struct dir *, const char *name, struct inode **);
 bool dir_add (struct dir *, const char *name, disk_sector_t);
-bool dir_remove (struct dir *, const char *name);
+bool dir_remove (struct dir *, const char *name, bool directory_only);
 bool dir_readdir (struct dir *, char name[NAME_MAX + 1]);
+bool dir_read_next (struct inode *, off_t *position, char name[NAME_MAX + 1]);
 
 #endif /* filesys/directory.h */

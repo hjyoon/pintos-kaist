@@ -2,6 +2,7 @@
 #define VM_VM_H
 #include <stdbool.h>
 #include "threads/palloc.h"
+#include "lib/kernel/hash.h"
 
 enum vm_type {
 	/* page not initialized */
@@ -31,11 +32,6 @@ enum vm_type {
 #include "filesys/page_cache.h"
 #endif
 
-/* NOTE: The beginning where custom code is added */
-#include "lib/kernel/hash.h"
-#include "lib/kernel/list.h"
-/* NOTE: The end where custom code is added */
-
 struct page_operations;
 struct thread;
 
@@ -50,11 +46,13 @@ struct page {
 	void *va;              /* Address in terms of user space */
 	struct frame *frame;   /* Back reference for frame */
 
-	/* Your implementation */
-	/* NOTE: The beginning where custom code is added */
-	struct hash_elem hash_elem;
-	bool writable;
-	/* NOTE: The end where custom code is added */
+	uint64_t *pml4;        /* Owning process page table. */
+	bool cow;              /* Logical write permission is temporarily protected. */
+	struct list_elem frame_elem; /* Link in a shared frame. */
+	bool writable;         /* Original mapping permissions. */
+	struct hash_elem spt_elem;
+	void *mapping_start;   /* NULL for pages outside mmap regions. */
+	size_t mapping_pages;  /* Region size, stored on its first page. */
 
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
@@ -72,10 +70,11 @@ struct page {
 struct frame {
 	void *kva;
 	struct page *page;
-
-	/* NOTE: The beginning where custom code is added */
-	struct list_elem elem;          // List element for inclusion in frame_list
-	/* NOTE: The end where custom code is added */
+	uint64_t *pml4;        /* Representative alias; each page owns its PML4. */
+	struct list_elem elem; /* Global resident-frame list. */
+	struct list pages;     /* Every alias sharing this physical frame. */
+	unsigned pins;        /* Temporary eviction exclusion. */
+	bool listed;
 };
 
 /* The function table for page operations.
@@ -98,9 +97,8 @@ struct page_operations {
  * We don't want to force you to obey any specific design for this struct.
  * All designs up to you for this. */
 struct supplemental_page_table {
-	/* NOTE: The beginning where custom code is added */
-	struct hash page_table;  // Hash table to store pages
-	/* NOTE: The end where custom code is added */
+	struct hash pages;
+	bool initialized;     /* hash_init can fail under memory pressure. */
 };
 
 #include "threads/thread.h"
@@ -124,5 +122,7 @@ bool vm_alloc_page_with_initializer (enum vm_type type, void *upage,
 void vm_dealloc_page (struct page *page);
 bool vm_claim_page (void *va);
 enum vm_type page_get_type (struct page *page);
+bool vm_user_buffer_valid (const void *buffer, size_t size, bool writable);
+bool vm_copy_user (void *kernel, void *user, size_t size, bool to_user);
 
 #endif  /* VM_VM_H */

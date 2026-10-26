@@ -6,15 +6,26 @@
 #include "devices/disk.h"
 
 struct bitmap;
+struct inode;
 
 void inode_init (void);
+void inode_lock_directory (struct inode *);
+void inode_unlock_directory (struct inode *);
 bool inode_create (disk_sector_t, off_t);
+bool inode_create_directory (disk_sector_t, off_t, disk_sector_t parent);
+bool inode_create_symlink (disk_sector_t, off_t);
+bool inode_is_directory (const struct inode *);
+bool inode_is_symlink (const struct inode *);
+bool inode_is_removed (const struct inode *);
+disk_sector_t inode_get_parent (const struct inode *);
+void inode_discard (disk_sector_t);
 struct inode *inode_open (disk_sector_t);
 struct inode *inode_reopen (struct inode *);
 disk_sector_t inode_get_inumber (const struct inode *);
 void inode_close (struct inode *);
 void inode_remove (struct inode *);
 off_t inode_read_at (struct inode *, void *, off_t size, off_t offset);
+void inode_readahead (struct inode *, off_t offset);
 off_t inode_write_at (struct inode *, const void *, off_t size, off_t offset);
 void inode_deny_write (struct inode *);
 void inode_allow_write (struct inode *);

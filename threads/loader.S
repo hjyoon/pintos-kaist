@@ -186,7 +186,10 @@ protcseg:
 	movw %ax, %fs		
 	movw %ax, %gs		
 	movw %ax, %ss
-	movl $LOADER_PHYS_BASE + 0x30000, %esp
+# Keep the temporary stack past the loaded image. A fixed 192 kB offset
+# overlaps larger kernels and bootstrap pushes corrupt their read-only data.
+# entry_64 switches stacks before the kernel initializes its BSS.
+	movl $LOADER_PHYS_BASE + KERNEL_LOAD_PAGES * 4096 + 4096, %esp
 
 #### Load kernel starting at physical address LOADER_PHYS_BASE by
 #### frobbing the IDE controller directly.

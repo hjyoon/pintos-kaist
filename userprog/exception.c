@@ -2,15 +2,10 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include "userprog/gdt.h"
+#include "userprog/syscall.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "intrinsic.h"
-
-#include "userprog/syscall.h"
-
-/* NOTE: The beginning where custom code is added */
-#include "include/vm/vm.h"
-/* NOTE: The end where custom code is added */
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -87,12 +82,8 @@ kill (struct intr_frame *f) {
 	   exception originated. */
 	switch (f->cs) {
 		case SEL_UCSEG:
-			/* User's code segment, so it's a user exception, as we
-			   expected.  Kill the user process.  */
-			printf ("%s: dying due to interrupt %#04llx (%s).\n",
-					thread_name (), f->vec_no, intr_name (f->vec_no));
-			intr_dump_frame (f);
-			thread_exit ();
+			/* Report the termination through process_exit(), once. */
+			syscall_exit (-1);
 
 		case SEL_KCSEG:
 			/* Kernel's code segment, which indicates a kernel bug.
@@ -107,7 +98,7 @@ kill (struct intr_frame *f) {
 			   kernel. */
 			printf ("Interrupt %#04llx (%s) in unknown segment %04x\n",
 					f->vec_no, intr_name (f->vec_no), f->cs);
-			thread_exit ();
+			syscall_exit (-1);
 	}
 }
 
@@ -154,14 +145,12 @@ page_fault (struct intr_frame *f) {
 
 	/* Count page faults. */
 	page_fault_cnt++;
-	exit(-1);
 
-	/* If the fault is true fault, show info and exit. */
-	printf ("Page fault at %p: %s error %s page in %s context.\n",
-			fault_addr,
-			not_present ? "not present" : "rights violation",
-			write ? "writing" : "reading",
-			user ? "user" : "kernel");
-	kill (f);
+	/* User faults terminate only the offending process.  System calls
+	   prevalidate user memory, so an unhandled kernel fault is a bug. */
+	if (user)
+		syscall_exit (-1);
+	PANIC ("Kernel page fault at %p (%s, %s)", fault_addr,
+	       not_present ? "not present" : "protection violation",
+	       write ? "write" : "read");
 }
-

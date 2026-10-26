@@ -4,54 +4,29 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/loader.h"
+#include "threads/init.h"
+#include "filesys/filesys.h"
+#include "filesys/file.h"
+#include "filesys/inode.h"
+#include "filesys/directory.h"
+#include "devices/input.h"
+#include "userprog/process.h"
+
+/* NOTE: The beginning where custom code is added */
+#include "threads/palloc.h"
+#include "threads/malloc.h"
+#include "threads/mmu.h"
+#include "threads/pte.h"
+#include <string.h>
+/* NOTE: The end where custom code is added */
+
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
 
-#include "userprog/process.h"
-#include "filesys/filesys.h"
-#include "filesys/file.h"
-#include "threads/palloc.h"
-
-#include "threads/synch.h"
-#include <string.h>
-
-/* NOTE: The beginning where custom code is added */
-#include "vm/vm.h"
-/* NOTE: The end where custom code is added */
-
-typedef uint32_t disk_sector_t;
-
-struct file {
-	struct inode *inode;        /* File's inode. */
-	off_t pos;                  /* Current position. */
-	bool deny_write;            /* Has file_deny_write() been called? */
-};
-
-struct inode_disk {
-	disk_sector_t start;                /* First data sector. */
-	off_t length;                       /* File size in bytes. */
-	unsigned magic;                     /* Magic number. */
-	uint32_t unused[125];               /* Not used. */
-};
-
-struct inode {
-	struct list_elem elem;              /* Element in inode list. */
-	disk_sector_t sector;               /* Sector number of disk location. */
-	int open_cnt;                       /* Number of openers. */
-	bool removed;                       /* True if deleted, false otherwise. */
-	int deny_write_cnt;                 /* 0: writes ok, >0: deny writes. */
-	struct inode_disk data;             /* Inode content. */
-};
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
-void user_memory_valid(void *r);
-struct file *get_file_by_descriptor(int fd);
-struct lock syscall_lock;
-
-// void check_address(const void *addr);
-// void check_valid_string(const char *str);
 
 /* System call.
  *
@@ -77,466 +52,432 @@ syscall_init (void) {
 	 * mode stack. Therefore, we masked the FLAG_FL. */
 	write_msr(MSR_SYSCALL_MASK,
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
-
-	lock_init(&syscall_lock);
 }
 
-const char* syscall_name(int syscall_number) {
-    switch (syscall_number) {
-        case SYS_HALT:
-            return "halt";
-        case SYS_EXIT:
-            return "exit";
-        case SYS_EXEC:
-            return "exec";
-        case SYS_WAIT:
-            return "wait";
-        case SYS_CREATE:
-            return "create";
-        case SYS_REMOVE:
-            return "remove";
-        case SYS_OPEN:
-            return "open";
-        case SYS_FILESIZE:
-            return "filesize";
-        case SYS_READ:
-            return "read";
-        case SYS_WRITE:
-            return "write";
-        case SYS_SEEK:
-            return "seek";
-        case SYS_TELL:
-            return "tell";
-        case SYS_CLOSE:
-            return "close";
-        default:
-            return "unknown";
-    }
+/* Reject invalid user ranges before allocating resources or dereferencing
+   user pointers.  A zero-length range does not access its pointer. */
+bool
+user_buffer_valid (const void *buffer, size_t size, bool writable) {
+#ifdef VM
+	return vm_user_buffer_valid (buffer, size, writable);
+#else
+	if (size == 0)
+		return true;
+
+	uintptr_t start = (uintptr_t) buffer;
+	if (buffer == NULL || !is_user_vaddr (buffer) || size > KERN_BASE - start)
+		return false;
+
+	uint64_t *pml4 = thread_current ()->pml4;
+	if (pml4 == NULL)
+		return false;
+	uintptr_t last_page = (uintptr_t) pg_round_down (start + size - 1);
+	for (uintptr_t page = (uintptr_t) pg_round_down (start);;
+	     page += PGSIZE) {
+
+		uint64_t *pte = pml4e_walk (pml4, page, 0);
+		if (pte == NULL || (*pte & (PTE_P | PTE_U)) != (PTE_P | PTE_U) ||
+		    (writable && (*pte & PTE_W) == 0))
+			return false;
+		if (page == last_page)
+			return true;
+	}
+#endif
 }
 
-/* The main system call interface */
-// void
-// syscall_handler (struct intr_frame *f UNUSED) {
-// 	// TODO: Your implementation goes here.
-// 	// printf("\n------- syscall handler -------\n");
-// 	uint64_t arg1 = f->R.rdi;
-// 	uint64_t arg2 = f->R.rsi;
-// 	uint64_t arg3 = f->R.rdx;
-// 	uint64_t arg4 = f->R.r10;
-// 	uint64_t arg5 = f->R.r8;
-// 	uint64_t arg6 = f->R.r9;
+/* Both system calls and user exceptions use the same exit path. */
+void
+syscall_exit (int status) {
+	thread_current ()->exit_status = status;
+	thread_exit ();
+}
 
-// 	/* Print system call information */
-//     // printf("System Call Invoked: %s (%d) from RIP: 0x%016lx\n", syscall_name(f->R.rax), f->R.rax, f->rip);
+/* Copy strings a page at a time, stopping at NUL before checking any
+   later page.  No filesystem lock is held on a validation failure. */
+static char *
+copy_user_string_cleanup (const char *user, void *on_fault) {
+	if (!user_buffer_valid (user, 1, false)) {
+		palloc_free_page (on_fault);
+		syscall_exit (-1);
+	}
+	char *copy = palloc_get_page (0);
+	if (copy == NULL)
+		return NULL;
+	for (size_t offset = 0; offset < PGSIZE;) {
+		const char *part = user + offset;
+		size_t chunk = PGSIZE - pg_ofs (part);
+		if (chunk > PGSIZE - offset)
+			chunk = PGSIZE - offset;
+		if (!user_buffer_valid (part, chunk, false)) {
+			palloc_free_page (copy);
+			palloc_free_page (on_fault);
+			syscall_exit (-1);
+		}
+#ifdef VM
+		if (!vm_copy_user (copy + offset, (void *) part, chunk, false)) {
+			palloc_free_page (copy);
+			return NULL;
+		}
+#else
+		memcpy (copy + offset, part, chunk);
+#endif
+		if (memchr (copy + offset, '\0', chunk) != NULL)
+			return copy;
+		offset += chunk;
+	}
+	palloc_free_page (copy);
+	return NULL;
+}
 
-// 	switch (f->R.rax)
-// 	{
-// 		case SYS_HALT:							//  0 운영체제 종료
-// 			// RPL(Requested Privilege Level) : cs의 하위 2비트
-// 			if ((f->cs & 0x3) != 0){}
-// 				// 권한 없음
-// 			// printf("SYS_HALT\n");
-// 			halt();
-// 		case SYS_EXIT:							//  1 프로세스 종료
-// 			// printf("SYS_EXIT\n");
-// 			exit(arg1);
-// 			break;
-// 		case SYS_FORK:							//  2 프로세스 복제
-// 			// printf("SYS_FORK\n");
-// 			// f->R.rax=fork(arg1);
-// 			f->R.rax = fork(arg1, f);		//(oom_update)
-// 			break;
-// 		case SYS_EXEC:							//  3 새로운 프로그램 실행
-// 			// printf("SYS_EXEC\n");
-// 			user_memory_valid((void *)arg1);
-// 			f->R.rax=exec(arg1);
-// 			break;
-// 		case SYS_WAIT:							//  4 자식 프로세스 대기
-// 			// printf("SYS_WAIT\n");
-// 			f->R.rax=wait(arg1);
-// 			break;
-// 		case SYS_CREATE:						//  5 파일 생성
-// 			// printf("SYS_CREATE\n");
-// 			user_memory_valid((void *)arg1);
-// 			f->R.rax=create(arg1,arg2);
-// 			break;
-// 		case SYS_REMOVE:						//  6 파일 삭제
-// 			// printf("SYS_REMOVE\n");
-// 			user_memory_valid((void *)arg1);
-// 			f->R.rax=remove(arg1);
-// 			break;
-// 		case SYS_OPEN:							//  7 파일 열기
-// 			// printf("SYS_OPEN\n");
-// 			user_memory_valid((void *)arg1);
-// 			f->R.rax=open(arg1);
-// 			break;
-// 		case SYS_FILESIZE:						//  8 파일 크기 조회
-// 			// printf("SYS_FILESIZE\n");
-// 			f->R.rax=filesize(arg1);
-// 			break;
-// 		case SYS_READ:							//  9 파일에서 읽기
-// 			// printf("SYS_READ\n");
-// 			user_memory_valid((void *)arg2);
-// 			f->R.rax=read(arg1,arg2,arg3);
-// 			break;
-// 		case SYS_WRITE:							//  10 파일에 쓰기
-// 			// printf("SYS_WRITE\n");
-// 			user_memory_valid((void *)arg2);
-// 			f->R.rax=write((int)arg1,(void *)arg2,(unsigned)arg3);
-// 			break;
-// 		case SYS_SEEK:							//  11 파일 내 위치 변경
-// 			// printf("SYS_SEEK\n");
-// 			seek(arg1,arg2);
-// 			break;
-// 		case SYS_TELL:							//  12 파일의 현재 위치 반환
-// 			// printf("SYS_TELL\n");
-// 			f->R.rax=tell(arg1);
-// 			break;
-// 		case SYS_CLOSE:							//  13 파일 닫기
-// 			// printf("SYS_CLOSE\n");
-// 			close(arg1);
-// 			break;
-// 		default:
-// 			// printf("default;\n");
-// 			break;
-// 	}
-// 	// printf("-------------------------------\n\n");
-// }
+static char *
+copy_user_string (const char *user) {
+	return copy_user_string_cleanup (user, NULL);
+}
 
-/* The main system call interface */
+static struct process_fd *
+lookup_fd (int fd) {
+	struct process_fd **table = thread_current ()->fd_table;
+	return table != NULL && fd >= 0 && fd < FD_COUNT ? table[fd] : NULL;
+}
+
+static struct file *
+lookup_file (int fd) {
+	struct process_fd *entry = lookup_fd (fd);
+	return entry != NULL && entry->file != NULL &&
+	       !inode_is_directory (file_get_inode (entry->file)) ? entry->file : NULL;
+}
+
+static int
+sys_open (const char *user) {
+	char *name = copy_user_string (user);
+	if (name == NULL)
+		return -1;
+	struct thread *current = thread_current ();
+	int fd;
+	for (fd = 0; fd < FD_COUNT; fd++)
+		if (current->fd_table[fd] == NULL)
+			break;
+	if (fd == FD_COUNT) {
+		palloc_free_page (name);
+		return -1;
+	}
+	struct process_fd *entry = calloc (1, sizeof *entry);
+	if (entry == NULL) {
+		palloc_free_page (name);
+		return -1;
+	}
+	struct file *file = filesys_open (name);
+	palloc_free_page (name);
+	if (file == NULL) {
+		free (entry);
+		return -1;
+	}
+	entry->file = file;
+	entry->kind = FD_FILE;
+	entry->references = 1;
+	current->fd_table[fd] = entry;
+	return fd;
+}
+
+static bool
+sys_create (const char *user, unsigned size) {
+	char *name = copy_user_string (user);
+	if (name == NULL)
+		return false;
+	bool success = size <= INT32_MAX && filesys_create (name, size);
+	palloc_free_page (name);
+	return success;
+}
+
+static bool
+sys_remove (const char *user) {
+	char *name = copy_user_string (user);
+	if (name == NULL)
+		return false;
+	bool success = filesys_remove (name);
+	palloc_free_page (name);
+	return success;
+}
+
+static void
+sys_close (int fd) {
+	struct process_fd *entry = lookup_fd (fd);
+	if (entry != NULL) {
+		thread_current ()->fd_table[fd] = NULL;
+		process_fd_release (entry);
+	}
+}
+
+static int
+sys_dup2 (int oldfd, int newfd) {
+	struct process_fd *entry = lookup_fd (oldfd);
+	if (entry == NULL || newfd < 0 || newfd >= FD_COUNT)
+		return -1;
+	if (oldfd == newfd)
+		return newfd;
+	/* Retain first: newfd may already be an alias of oldfd. */
+	entry->references++;
+	process_fd_release (thread_current ()->fd_table[newfd]);
+	thread_current ()->fd_table[newfd] = entry;
+	return newfd;
+}
+
+#ifdef EFILESYS
+static bool
+sys_readdir (int fd, char *user_name) {
+	if (!user_buffer_valid (user_name, NAME_MAX + 1, true))
+		syscall_exit (-1);
+	struct process_fd *entry = lookup_fd (fd);
+	if (entry == NULL || entry->file == NULL)
+		return false;
+	char name[NAME_MAX + 1] = {0};
+	off_t position = entry->position;
+	bool success = dir_read_next (file_get_inode (entry->file), &position, name);
+	entry->position = position;
+	if (success) {
+#ifdef VM
+		if (!vm_copy_user (name, user_name, sizeof name, true))
+			syscall_exit (-1);
+#else
+		memcpy (user_name, name, sizeof name);
+#endif
+	}
+	return success;
+}
+#endif
+
+/* Validate the whole range before allocating a bounce page or taking a
+   filesystem lock.  Transfers use bounded chunks rather than malloc(size). */
+static int
+sys_read (int fd, void *buffer, unsigned size) {
+	if (!user_buffer_valid (buffer, size, true))
+		syscall_exit (-1);
+	struct process_fd *entry = lookup_fd (fd);
+	struct file *file = entry != NULL ? entry->file : NULL;
+	if (entry == NULL || entry->kind == FD_OUTPUT ||
+	    (file != NULL && inode_is_directory (file_get_inode (file))))
+		return -1;
+	if (size == 0)
+		return 0;
+	char *copy = palloc_get_page (0);
+	if (copy == NULL)
+		return -1;
+	size_t total = 0;
+	while (total < size) {
+		size_t chunk = size - total;
+		if (chunk > PGSIZE)
+			chunk = PGSIZE;
+		int count;
+		if (entry->kind == FD_INPUT) {
+			for (size_t i = 0; i < chunk; i++)
+				copy[i] = input_getc ();
+			count = chunk;
+		} else {
+			/* The base filesystem cannot grow beyond signed inode offsets.
+			   An unsigned position past EOF must not be narrowed first. */
+			if (entry->position > INT32_MAX)
+				count = 0;
+			else {
+				count = file_read_at (file, copy, chunk, (off_t) entry->position);
+				if (count > 0) {
+					entry->position += count;
+					inode_readahead (file_get_inode (file), entry->position - 1);
+				}
+			}
+		}
+		if (count <= 0)
+			break;
+#ifdef VM
+		if (!vm_copy_user (copy, (char *) buffer + total, count, true)) {
+			palloc_free_page (copy);
+			syscall_exit (-1);
+		}
+#else
+		memcpy ((char *) buffer + total, copy, count);
+#endif
+		total += count;
+		if ((size_t) count < chunk)
+			break;
+	}
+	palloc_free_page (copy);
+	return total;
+}
+
+static int
+sys_write (int fd, const void *buffer, unsigned size) {
+	if (!user_buffer_valid (buffer, size, false))
+		syscall_exit (-1);
+	struct process_fd *entry = lookup_fd (fd);
+	struct file *file = entry != NULL ? entry->file : NULL;
+	if (entry == NULL || entry->kind == FD_INPUT ||
+	    (file != NULL && inode_is_directory (file_get_inode (file))))
+		return -1;
+	if (size == 0)
+		return 0;
+	char *copy = palloc_get_page (0);
+	if (copy == NULL)
+		return -1;
+	size_t total = 0;
+	while (total < size) {
+		size_t chunk = size - total;
+		if (chunk > PGSIZE)
+			chunk = PGSIZE;
+#ifdef VM
+		if (!vm_copy_user (copy, (char *) buffer + total, chunk, false)) {
+			palloc_free_page (copy);
+			syscall_exit (-1);
+		}
+#else
+		memcpy (copy, (const char *) buffer + total, chunk);
+#endif
+		int count;
+		if (entry->kind == FD_OUTPUT) {
+			putbuf (copy, chunk);
+			count = chunk;
+		} else {
+			/* Keep the unsigned descriptor position out of signed inode offsets. */
+			bool valid_position = entry->position <= INT32_MAX;
+#ifndef EFILESYS
+			valid_position = valid_position && entry->position < (uint32_t) file_length (file);
+#endif
+			if (!valid_position)
+				count = 0;
+			else {
+				count = file_write_at (file, copy, chunk, (off_t) entry->position);
+				if (count > 0)
+					entry->position += count;
+			}
+		}
+		if (count <= 0)
+			break;
+		total += count;
+		if ((size_t) count < chunk)
+			break;
+	}
+	palloc_free_page (copy);
+	return total;
+}
+
 void
 syscall_handler (struct intr_frame *f) {
-	// TODO: Your implementation goes here.
-	// printf("\n------- syscall handler -------\n");
-	uint64_t arg1 = f->R.rdi;
-	uint64_t arg2 = f->R.rsi;
-	uint64_t arg3 = f->R.rdx;
-	uint64_t arg4 = f->R.r10;
-	uint64_t arg5 = f->R.r8;
-	uint64_t arg6 = f->R.r9;
-
-	/* Print system call information */
-    // printf("System Call Invoked: %s (%d) from RIP: 0x%016lx\n", syscall_name(f->R.rax), f->R.rax, f->rip);
-
-	switch (f->R.rax)
-	{
-		case SYS_HALT:							//  0 운영체제 종료
-			// RPL(Requested Privilege Level) : cs의 하위 2비트
-			if ((f->cs & 0x3) != 0){}
-				// 권한 없음
-			// printf("SYS_HALT\n");
-			halt();
-		case SYS_EXIT:							//  1 프로세스 종료
-			// printf("SYS_EXIT\n");
-			exit(arg1);
+#ifdef VM
+	thread_current ()->user_rsp = (void *) f->rsp;
+#endif
+	switch (f->R.rax) {
+		case SYS_HALT:
+			power_off ();
+		case SYS_EXIT:
+			syscall_exit ((int) f->R.rdi);
+		case SYS_FORK: {
+			char *name = copy_user_string ((const char *) f->R.rdi);
+			f->R.rax = name != NULL ? process_fork (name, f) : TID_ERROR;
+			palloc_free_page (name);
 			break;
-		case SYS_FORK:							//  2 프로세스 복제
-			// printf("SYS_FORK\n");
-			// f->R.rax=fork(arg1);
-			f->R.rax = fork(arg1, f);		//(oom_update)
+		}
+		case SYS_EXEC: {
+			char *command = copy_user_string ((const char *) f->R.rdi);
+			if (command == NULL || process_exec (command) < 0)
+				syscall_exit (-1);
+			NOT_REACHED ();
+		}
+		case SYS_WAIT:
+			f->R.rax = process_wait ((tid_t) f->R.rdi);
 			break;
-		case SYS_EXEC:							//  3 새로운 프로그램 실행
-			// printf("SYS_EXEC\n");
-			// user_memory_valid((void *)arg1, arg3);
-			// f->R.rax=exec(arg1);
-			// break;
-			// if (!user_string_valid((const char *)arg1)) {
-			// 	exit(-1);
-			// }
-			// f->R.rax = exec((const char *)arg1);
-			// break;
-
-			check_valid_string((const char *)arg1);
-			f->R.rax = exec((const char *)arg1);
+		case SYS_CREATE:
+			f->R.rax = sys_create ((const char *) f->R.rdi, (unsigned) f->R.rsi);
 			break;
-		case SYS_WAIT:							//  4 자식 프로세스 대기
-			// printf("SYS_WAIT\n");
-			f->R.rax=wait(arg1);
+		case SYS_REMOVE:
+			f->R.rax = sys_remove ((const char *) f->R.rdi);
 			break;
-		case SYS_CREATE:						//  5 파일 생성
-			// printf("SYS_CREATE\n");
-			// user_memory_valid((void *)arg1, arg3);
-			// f->R.rax=create(arg1,arg2);
-			// break;
-
-			check_valid_string((const char *)arg1);
-			f->R.rax = create((const char *)arg1, arg2);
+		case SYS_OPEN:
+			f->R.rax = sys_open ((const char *) f->R.rdi);
 			break;
-		case SYS_REMOVE:						//  6 파일 삭제
-			// printf("SYS_REMOVE\n");
-			// user_memory_valid((void *)arg1, arg3);
-			// f->R.rax=remove(arg1);
-			// break;
-
-			check_valid_string((const char *)arg1);
-			f->R.rax = remove((const char *)arg1);
+#ifdef EFILESYS
+		case SYS_SYMLINK: {
+			char *target = copy_user_string ((const char *) f->R.rdi);
+			/* A fault in the second string must release the first copy too. */
+			char *linkpath = target != NULL ?
+			                 copy_user_string_cleanup ((const char *) f->R.rsi, target) : NULL;
+			f->R.rax = -1;
+			if (target != NULL && linkpath != NULL) {
+				f->R.rax = filesys_symlink (target, linkpath);
+			}
+			palloc_free_page (linkpath);
+			palloc_free_page (target);
 			break;
-		case SYS_OPEN:							//  7 파일 열기
-			// printf("SYS_OPEN\n");
-			// user_memory_valid((void *)arg1, arg3);
-			// f->R.rax=open(arg1);
-			// break;
-
-			check_valid_string((const char *)arg1);
-			f->R.rax = open((const char *)arg1);
+		}
+		case SYS_CHDIR:
+		case SYS_MKDIR: {
+			bool make_directory = f->R.rax == SYS_MKDIR;
+			char *path = copy_user_string ((const char *) f->R.rdi);
+			f->R.rax = false;
+			if (path != NULL) {
+				f->R.rax = make_directory ? filesys_mkdir (path) : filesys_chdir (path);
+				palloc_free_page (path);
+			}
 			break;
-		case SYS_FILESIZE:						//  8 파일 크기 조회
-			// printf("SYS_FILESIZE\n");
-			f->R.rax=filesize(arg1);
+		}
+		case SYS_READDIR:
+			f->R.rax = sys_readdir ((int) f->R.rdi, (char *) f->R.rsi);
 			break;
-		case SYS_READ:							//  9 파일에서 읽기
-			// printf("SYS_READ\n");
-			// check_address((void *)arg2);
-			check_valid_buffer(f->R.rsi, f->R.rdx, 1);
-			f->R.rax=read(arg1,arg2,arg3);
+		case SYS_ISDIR:
+		case SYS_INUMBER: {
+			bool get_number = f->R.rax == SYS_INUMBER;
+			struct process_fd *entry = lookup_fd ((int) f->R.rdi);
+			f->R.rax = get_number ? -1 : 0;
+			if (entry != NULL && entry->file != NULL) {
+				struct inode *inode = file_get_inode (entry->file);
+				f->R.rax = get_number ? inode_get_inumber (inode) : inode_is_directory (inode);
+			}
 			break;
-
-			// check_valid_buffer((void *)arg2, arg3, true);
-			// f->R.rax = read(arg1, (void *)arg2, arg3);
-			// break;
-		case SYS_WRITE:							//  10 파일에 쓰기
-			// printf("SYS_WRITE\n");
-			// check_address((void *)arg2);
-			check_valid_buffer(f->R.rsi, f->R.rdx, 0);
-			f->R.rax=write((int)arg1,(void *)arg2,(unsigned)arg3);
+		}
+#endif
+#ifdef VM
+		case SYS_MMAP: {
+			struct file *file = lookup_file ((int) f->R.r10);
+			if (f->R.r8 > INT32_MAX)
+				f->R.rax = 0;
+			else
+				f->R.rax = (uintptr_t) do_mmap ((void *) f->R.rdi, f->R.rsi,
+				                              (int) f->R.rdx, file, (off_t) f->R.r8);
 			break;
-
-			// check_valid_buffer((void *)arg2, arg3, false);
-			// f->R.rax = write((int)arg1, (void *)arg2, (unsigned)arg3);
-			// break;
-		case SYS_SEEK:							//  11 파일 내 위치 변경
-			// printf("SYS_SEEK\n");
-			seek(arg1,arg2);
+		}
+		case SYS_MUNMAP:
+			do_munmap ((void *) f->R.rdi);
 			break;
-		case SYS_TELL:							//  12 파일의 현재 위치 반환
-			// printf("SYS_TELL\n");
-			f->R.rax=tell(arg1);
+#endif
+		case SYS_DUP2:
+			f->R.rax = sys_dup2 ((int) f->R.rdi, (int) f->R.rsi);
 			break;
-		case SYS_CLOSE:							//  13 파일 닫기
-			// printf("SYS_CLOSE\n");
-			close(arg1);
+		case SYS_CLOSE:
+			sys_close ((int) f->R.rdi);
+			break;
+		case SYS_FILESIZE:
+		case SYS_TELL:
+		case SYS_SEEK: {
+			struct file *file = lookup_file ((int) f->R.rdi);
+			uint64_t call = f->R.rax;
+			f->R.rax = -1;
+			if (file != NULL) {
+				if (call == SYS_FILESIZE)
+					f->R.rax = file_length (file);
+				else if (call == SYS_TELL)
+					f->R.rax = thread_current ()->fd_table[(int) f->R.rdi]->position;
+				else
+					thread_current ()->fd_table[(int) f->R.rdi]->position =
+						(unsigned) f->R.rsi;
+			}
+			break;
+		}
+		case SYS_READ:
+			f->R.rax = sys_read ((int) f->R.rdi, (void *) f->R.rsi,
+			                    (unsigned) f->R.rdx);
+			break;
+		case SYS_WRITE:
+			f->R.rax = sys_write ((int) f->R.rdi, (const void *) f->R.rsi,
+			                     (unsigned) f->R.rdx);
 			break;
 		default:
-			// printf("default;\n");
-			break;
+			syscall_exit (-1);
 	}
-	// printf("-------------------------------\n\n");
-}
-
-void halt (void){
-	power_off();
-}
-
-void exit (int status){
-	struct thread *curr = thread_current();
-	curr->process_status = status;
-	printf("%s: exit(%d)\n", curr->name, status);
-	thread_exit();
-}
-
-pid_t fork (const char *thread_name, struct intr_frame *f) {	//(oom_update)
-	return process_fork(thread_name, f);
-}
-
-int exec (const char *cmd_line){
-	char *copy = palloc_get_page(PAL_ZERO);
-	if (copy == NULL) {
-		exit(-1);
-	}
-	strlcpy(copy, cmd_line, strlen(cmd_line) + 1);
-	if (process_exec (copy) < 0) {
-		exit(-1);
-	}
-	NOT_REACHED();
-}
-
-int wait (pid_t pid){
-	return process_wait(pid);
-}
-
-bool create (const char *file, unsigned initial_size){
-	lock_acquire(&syscall_lock);		//minjae's
-	bool create_return = filesys_create(file, initial_size);
-	lock_release(&syscall_lock);		//minjae's
-	return create_return;
-}
-
-bool remove (const char *file){
-	return filesys_remove(file);
-}
-
-int open (const char *file) {	//(oom_update)
-	lock_acquire(&syscall_lock);
-	struct file *f = filesys_open(file);
-	if (f == NULL){
-		lock_release(&syscall_lock);
-		return -1;
-	}
-	struct thread *curr = thread_current();
-	struct file **fdt = curr->fd_table;
-
-	while (curr->next_fd < FD_MAX && fdt[curr->next_fd])
-		curr->next_fd++;
-
-	if (curr->next_fd >= FD_MAX) {
-		file_close (f);
-		lock_release(&syscall_lock);
-		return -1;
-	}
-
-	fdt[curr->next_fd] = f;
-	lock_release(&syscall_lock);
-	return curr->next_fd;
-}
-
-int filesize (int fd){
-	struct file *file = get_file_by_descriptor(fd);
-	return file_length(file);
-}
-
-int read (int fd, void *buffer, unsigned size){
-	if (fd == STD_IN) {                // keyboard로 직접 입력
-		int i;  // 쓰레기 값 return 방지
-		char c;
-		unsigned char *buf = buffer;
-
-		for (i = 0; i < size; i++) {
-			c = input_getc();
-			*buf++ = c;
-			if (c == '\0')
-				break;
-		}
-		return i;
-	}
-	
-    struct file *file = get_file_by_descriptor(fd);
-	if (file == NULL || fd == STD_OUT || fd == STD_ERR)  // 빈 파일, stdout, stderr를 읽으려고 할 경우
-		return -1;
-
-	off_t bytes = -1;
-	lock_acquire(&syscall_lock);
-	bytes = file_read(file, buffer, size);
-	lock_release(&syscall_lock);
-
-	return bytes;
-}
-
-int write (int fd, const void *buffer, unsigned size){
-	if (fd == STD_IN || fd == STD_ERR){
-		return -1;
-	}
-
-	if (fd == STD_OUT){
-		putbuf(buffer, size);
-		return size;
-	}
-
-	struct file *file = get_file_by_descriptor(fd);
-	if (file == NULL){
-		return -1;
-	}
-
-	lock_acquire(&syscall_lock);
-	int written = file_write(file, buffer, size);
-	lock_release(&syscall_lock);
-
-	return written;
-}
-
-void seek (int fd, unsigned position){
-	if (fd < 3)
-		return;
-
-	struct file *file = get_file_by_descriptor(fd);
-	if (file == NULL){
-		return;
-	}
-
-	file_seek(file, position);
-}
-
-unsigned tell (int fd){
-	if (fd < 3)
-		return -1;
-
-	struct file *file = get_file_by_descriptor(fd);
-	if (file == NULL){
-		return -1;
-	}
-
-	return file_tell(file);
-}
-
-void close (int fd){	//(oom_update)
-	if (fd <= 2)
-		return;
-	struct thread *curr = thread_current ();
-	struct file *f = curr->fd_table[fd];
-
-	if (f == NULL){
-		return;
-	}
-	curr->fd_table[fd] = NULL;
-	curr->next_fd = 3;
-
-	file_close(f);
-}
-
-
-void user_memory_valid(void *r){
-	struct thread *current = thread_current();  
-	uint64_t *pml4 = current->pml4;
-	if (r == NULL || is_kernel_vaddr(r) || pml4_get_page(pml4,r) == NULL){
-		exit(-1);
-	}
-}
-
-struct page *check_address(void *addr) {
-    if (addr == NULL || is_kernel_vaddr(addr)) {
-        exit(-1);
-    }
-    struct page *page = spt_find_page(&thread_current()->spt, addr);
-    if (page == NULL) {
-        exit(-1);
-    }
-    return page;
-}
-
-void check_valid_buffer(void *buffer, unsigned size, bool to_write) {
-    char *buf = (char *)buffer;
-    char *end = buf + size;
-
-    while (buf < end) {
-        /* Round down to the nearest page boundary */
-        char *page_boundary = (char *)pg_round_down(buf);
-
-        /* Get the page */
-        struct page *page = check_address(page_boundary);
-
-        /* Check write permissions if necessary */
-        if (to_write && !page->writable) {
-            exit(-1);
-        }
-
-        /* Move to the next page */
-        buf = page_boundary + PGSIZE;
-    }
-}
-
-void check_valid_string(const char *str) {
-    while (true) {
-        check_address((const void *)str);
-        if (*str == '\0') {
-            break;
-        }
-        str++;
-    }
-}
-
-struct file *get_file_by_descriptor(int fd)
-{
-	if (fd < 3 || fd > 128)
-		return NULL;
-	struct thread *t = thread_current();
-	return t->fd_table[fd];
 }
