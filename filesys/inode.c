@@ -52,7 +52,10 @@ struct inode {
 	bool removed;                       /* True if deleted, false otherwise. */
 	int deny_write_cnt;                 /* 0: writes ok, >0: deny writes. */
 	struct inode_data data;             /* Interpreted inode fields. */
-	struct lock data_lock;             /* Chain changes and length publication. */
+	struct rw_lock data_lock;          /* Stable I/O shared; growth exclusive. */
+	struct lock directory_lock;        /* Namespace entries and unlink. */
+	struct lock mapping_lock;          /* Short in-memory chain hint updates. */
+	bool valid;                       /* Initialization has finished successfully. */
 #ifdef EFILESYS
 	cluster_t cached_cluster;          /* Sequential chain traversal hint. */
 	size_t cached_index;
@@ -63,6 +66,7 @@ struct inode {
 /* Resolve reserved chain entries too, before a growing write publishes EOF. */
 static disk_sector_t
 index_to_sector (struct inode *inode, size_t target) {
+	lock_acquire (&inode->mapping_lock);
 	cluster_t cluster = inode->data.start;
 	size_t index = 0;
 	if (inode->cached_cluster != 0 && inode->cached_index <= target) {
@@ -76,7 +80,9 @@ index_to_sector (struct inode *inode, size_t target) {
 	}
 	inode->cached_cluster = cluster;
 	inode->cached_index = target;
-	return cluster_to_sector (cluster);
+	disk_sector_t sector = cluster_to_sector (cluster);
+	lock_release (&inode->mapping_lock);
+	return sector;
 }
 
 /* Reserve and zero the complete extension before changing existing data.
@@ -124,11 +130,13 @@ byte_to_sector (struct inode *inode, off_t pos) {
 /* List of open inodes, so that opening a single inode twice
  * returns the same `struct inode'. */
 static struct list open_inodes;
+static struct lock open_lock;
 
 /* Initializes the inode module. */
 void
 inode_init (void) {
 	list_init (&open_inodes);
+	lock_init (&open_lock);
 }
 
 /* Initializes an inode with LENGTH bytes of data and
@@ -192,69 +200,87 @@ create_inode (disk_sector_t sector, off_t length, enum inode_type type, disk_sec
 
 bool
 inode_create (disk_sector_t sector, off_t length) {
+	FILESYS_OPERATION;
 	return create_inode (sector, length, INODE_FILE, 0);
 }
 
 bool
 inode_create_directory (disk_sector_t sector, off_t length, disk_sector_t parent) {
+	FILESYS_OPERATION;
 	return create_inode (sector, length, INODE_DIRECTORY, parent);
 }
 
 bool
 inode_create_symlink (disk_sector_t sector, off_t length) {
+	FILESYS_OPERATION;
 	return create_inode (sector, length, INODE_SYMLINK, 0);
 }
 
 /* Reads an inode from SECTOR
  * and returns a `struct inode' that contains it.
  * Returns a null pointer if memory allocation fails. */
+/* Publish a placeholder under the short registry lock. Its exclusive data
+   lock protects initialization, so other opens wait only on this inode and
+   keep it referenced. No disk I/O holds the registry lock. */
 struct inode *
 inode_open (disk_sector_t sector) {
-	struct list_elem *e;
-	struct inode *inode;
-
-	/* Check whether this inode is already open. */
-	for (e = list_begin (&open_inodes); e != list_end (&open_inodes);
-			e = list_next (e)) {
-		inode = list_entry (e, struct inode, elem);
+	FILESYS_OPERATION;
+	lock_acquire (&open_lock);
+	for (struct list_elem *e = list_begin (&open_inodes);
+	     e != list_end (&open_inodes); e = list_next (e)) {
+		struct inode *inode = list_entry (e, struct inode, elem);
 		if (inode->sector == sector) {
-			inode_reopen (inode);
-			return inode; 
+			inode->open_cnt++;
+			lock_release (&open_lock);
+			rw_lock_read (&inode->data_lock);
+			bool valid = inode->valid;
+			rw_unlock_read (&inode->data_lock);
+			if (!valid) {
+				inode_close (inode);
+				return NULL;
+			}
+			return inode;
 		}
 	}
-
-	/* Allocate memory. */
-	inode = malloc (sizeof *inode);
-	if (inode == NULL)
-		return NULL;
-
-	/* Initialize. */
-	list_push_front (&open_inodes, &inode->elem);
-	inode->sector = sector;
-	inode->open_cnt = 1;
-	inode->deny_write_cnt = 0;
-	inode->removed = false;
-	lock_init (&inode->data_lock);
-	buffer_cache_read (inode->sector, &inode->data, 0, sizeof inode->data);
-#ifdef EFILESYS
-	if (inode->data.magic != INODE_MAGIC || inode->data.length < 0 ||
-	    inode->data.type > INODE_SYMLINK ||
-	    (inode->data.length > 0 && inode->data.start == 0)) {
-		list_remove (&inode->elem);
-		free (inode);
+	struct inode *inode = calloc (1, sizeof *inode);
+	if (inode == NULL) {
+		lock_release (&open_lock);
 		return NULL;
 	}
+	inode->sector = sector;
+	inode->open_cnt = 1;
+	rw_lock_init (&inode->data_lock);
+	lock_init (&inode->directory_lock);
+	lock_init (&inode->mapping_lock);
+	rw_lock_write (&inode->data_lock);
+	list_push_front (&open_inodes, &inode->elem);
+	lock_release (&open_lock);
+	buffer_cache_read (sector, &inode->data, 0, sizeof inode->data);
+	inode->valid = inode->data.magic == INODE_MAGIC && inode->data.length >= 0 &&
+	               inode->data.type <= INODE_SYMLINK &&
+	               (inode->data.length == 0 || inode->data.start != 0);
+#ifdef EFILESYS
 	inode->cached_cluster = inode->data.start;
 	inode->cached_index = 0;
 #endif
+	bool valid = inode->valid;
+	rw_unlock_write (&inode->data_lock);
+	if (!valid) {
+		inode_close (inode);
+		return NULL;
+	}
 	return inode;
 }
 
 /* Reopens and returns INODE. */
 struct inode *
 inode_reopen (struct inode *inode) {
-	if (inode != NULL)
+	FILESYS_OPERATION;
+	if (inode != NULL) {
+		lock_acquire (&open_lock);
 		inode->open_cnt++;
+		lock_release (&open_lock);
+	}
 	return inode;
 }
 
@@ -269,14 +295,18 @@ inode_get_inumber (const struct inode *inode) {
  * If INODE was also a removed inode, frees its blocks. */
 void
 inode_close (struct inode *inode) {
+	FILESYS_OPERATION;
 	/* Ignore null pointer. */
 	if (inode == NULL)
 		return;
 
-	/* Release resources if this was the last opener. */
-	if (--inode->open_cnt == 0) {
-		/* Remove from inode list and release lock. */
+	/* Detach the last reference before doing any allocator/cache I/O. */
+	lock_acquire (&open_lock);
+	bool last = --inode->open_cnt == 0;
+	if (last)
 		list_remove (&inode->elem);
+	lock_release (&open_lock);
+	if (last) {
 
 		/* Deallocate blocks if removed. */
 		if (inode->removed) {
@@ -298,8 +328,11 @@ inode_close (struct inode *inode) {
  * has it open. */
 void
 inode_remove (struct inode *inode) {
+	FILESYS_OPERATION;
 	ASSERT (inode != NULL);
+	lock_acquire (&open_lock);
 	inode->removed = true;
+	lock_release (&open_lock);
 }
 
 /* Reads SIZE bytes from INODE into BUFFER, starting at position OFFSET.
@@ -307,15 +340,16 @@ inode_remove (struct inode *inode) {
  * than SIZE if an error occurs or end of file is reached. */
 off_t
 inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset) {
+	FILESYS_OPERATION;
 	uint8_t *buffer = buffer_;
 	if (offset < 0 || size <= 0)
 		return 0;
-	lock_acquire (&inode->data_lock);
+	rw_lock_read (&inode->data_lock);
 	off_t bytes_read = 0;
 	while (size > 0) {
 		disk_sector_t sector = byte_to_sector (inode, offset);
 		size_t within = offset % DISK_SECTOR_SIZE;
-		off_t remaining = inode_length (inode) - offset;
+		off_t remaining = inode->data.length - offset;
 		off_t bytes = DISK_SECTOR_SIZE - within;
 		if (bytes > remaining)
 			bytes = remaining;
@@ -330,7 +364,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset) {
 		bytes_read += bytes;
 	}
 
-	lock_release (&inode->data_lock);
+	rw_unlock_read (&inode->data_lock);
 	return bytes_read;
 }
 
@@ -338,11 +372,12 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset) {
    metadata do not speculatively read unrelated blocks into the data cache. */
 void
 inode_readahead (struct inode *inode, off_t offset) {
-	lock_acquire (&inode->data_lock);
-	if (offset < 0 || offset >= inode_length (inode))
+	FILESYS_OPERATION;
+	rw_lock_read (&inode->data_lock);
+	if (offset < 0 || offset >= inode->data.length)
 		goto out;
 	off_t next_offset = offset - offset % DISK_SECTOR_SIZE + DISK_SECTOR_SIZE;
-	if (next_offset >= inode_length (inode))
+	if (next_offset >= inode->data.length)
 		goto out;
 	disk_sector_t sector = byte_to_sector (inode, offset);
 #ifdef EFILESYS
@@ -353,26 +388,38 @@ inode_readahead (struct inode *inode, off_t offset) {
 	buffer_cache_readahead (sector + 1);
 #endif
 out:
-	lock_release (&inode->data_lock);
+	rw_unlock_read (&inode->data_lock);
 }
 
-/* Growing writes reserve all storage first and publish their new EOF only
-   after zero-filling the gap and copying data. Readers share data_lock. */
+/* Stable reads and nonextending writes share the inode lock. Growth excludes
+   both until its gap/data and new EOF are fully initialized. Cache sector
+   locks still serialize accesses to the same block. */
 off_t
 inode_write_at (struct inode *inode, const void *buffer_, off_t size,
                 off_t offset) {
+	FILESYS_OPERATION;
 	const uint8_t *buffer = buffer_;
 	if (offset < 0 || size <= 0)
 		return 0;
-	lock_acquire (&inode->data_lock);
+	rw_lock_read (&inode->data_lock);
+	bool exclusive = false;
+#ifdef EFILESYS
+	if ((uint64_t) offset + (uint64_t) size > INT32_MAX) {
+		rw_unlock_read (&inode->data_lock);
+		return 0;
+	}
+	off_t end = offset + size;
+	if (end > inode->data.length) {
+		rw_unlock_read (&inode->data_lock);
+		rw_lock_write (&inode->data_lock);
+		exclusive = true;
+	}
+#endif
 	off_t bytes_written = 0;
 	if (inode->deny_write_cnt)
 		goto out;
 #ifdef EFILESYS
-	if ((uint64_t) offset + (uint64_t) size > INT32_MAX)
-		goto out;
-	off_t end = offset + size;
-	if (!reserve_extension (inode, end))
+	if (end > inode->data.length && !reserve_extension (inode, end))
 		goto out;
 	/* Newly reserved sectors are already zero. Only the old partial sector
 	   can contain a gap that still needs initialization. */
@@ -395,7 +442,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 		size_t within = offset % DISK_SECTOR_SIZE;
 		off_t bytes = DISK_SECTOR_SIZE - within;
 #ifndef EFILESYS
-		off_t remaining = inode_length (inode) - offset;
+		off_t remaining = inode->data.length - offset;
 		if (bytes > remaining)
 			bytes = remaining;
 #endif
@@ -415,7 +462,10 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 	}
 #endif
 out:
-	lock_release (&inode->data_lock);
+	if (exclusive)
+		rw_unlock_write (&inode->data_lock);
+	else
+		rw_unlock_read (&inode->data_lock);
 	return bytes_written;
 }
 
@@ -424,10 +474,13 @@ out:
 	void
 inode_deny_write (struct inode *inode) 
 {
-	lock_acquire (&inode->data_lock);
+	FILESYS_OPERATION;
+	rw_lock_write (&inode->data_lock);
 	inode->deny_write_cnt++;
+	lock_acquire (&open_lock);
 	ASSERT (inode->deny_write_cnt <= inode->open_cnt);
-	lock_release (&inode->data_lock);
+	lock_release (&open_lock);
+	rw_unlock_write (&inode->data_lock);
 }
 
 /* Re-enables writes to INODE.
@@ -435,30 +488,42 @@ inode_deny_write (struct inode *inode)
  * inode_deny_write() on the inode, before closing the inode. */
 void
 inode_allow_write (struct inode *inode) {
-	lock_acquire (&inode->data_lock);
+	FILESYS_OPERATION;
+	rw_lock_write (&inode->data_lock);
 	ASSERT (inode->deny_write_cnt > 0);
+	lock_acquire (&open_lock);
 	ASSERT (inode->deny_write_cnt <= inode->open_cnt);
+	lock_release (&open_lock);
 	inode->deny_write_cnt--;
-	lock_release (&inode->data_lock);
+	rw_unlock_write (&inode->data_lock);
 }
 
 /* Returns the length, in bytes, of INODE's data. */
 off_t
 inode_length (const struct inode *inode) {
-	return inode->data.length;
+	FILESYS_OPERATION;
+	struct inode *mutable = (struct inode *) inode;
+	rw_lock_read (&mutable->data_lock);
+	off_t length = inode->data.length;
+	rw_unlock_read (&mutable->data_lock);
+	return length;
 }
 
-#ifdef EFILESYS
 /* Discard a newly created inode that could not be linked into a directory. */
 void
 inode_discard (disk_sector_t sector) {
+	FILESYS_OPERATION;
 	struct inode_data disk_inode;
 	buffer_cache_read (sector, &disk_inode, 0, sizeof disk_inode);
 	ASSERT (disk_inode.magic == INODE_MAGIC);
+#ifdef EFILESYS
 	fat_remove_chain (disk_inode.start, 0);
 	fat_remove_chain (sector_to_cluster (sector), 0);
-}
+#else
+	free_map_release (disk_inode.start, bytes_to_sectors (disk_inode.length));
+	free_map_release (sector, 1);
 #endif
+}
 
 static disk_sector_t
 root_inode_sector (void) {
@@ -487,5 +552,21 @@ inode_get_parent (const struct inode *inode) {
 
 bool
 inode_is_removed (const struct inode *inode) {
-	return inode->removed;
+	FILESYS_OPERATION;
+	lock_acquire (&open_lock);
+	bool removed = inode->removed;
+	lock_release (&open_lock);
+	return removed;
+}
+
+/* Directory locking is distinct from file data locking: entry scans and
+   updates may call inode I/O while their namespace transaction stays held. */
+void
+inode_lock_directory (struct inode *inode) {
+	lock_acquire (&inode->directory_lock);
+}
+
+void
+inode_unlock_directory (struct inode *inode) {
+	lock_release (&inode->directory_lock);
 }

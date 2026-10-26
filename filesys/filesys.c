@@ -10,10 +10,8 @@
 #include "filesys/page_cache.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
-#ifdef USERPROG
-#include "userprog/syscall.h"
 #include "threads/synch.h"
-#endif
+#include "threads/interrupt.h"
 #ifdef EFILESYS
 #include "filesys/fat.h"
 #endif
@@ -21,12 +19,43 @@
 /* The disk that contains the file system. */
 struct disk *filesys_disk;
 
+static struct semaphore operations_drained, shutdown_waiters;
+static unsigned active_operations;
+static bool stopping;
+
+void
+filesys_operation_begin (void) {
+	struct thread *current = thread_current ();
+	if (current->filesys_depth++ != 0)
+		return;
+	enum intr_level old = intr_disable ();
+	while (stopping)
+		sema_down (&shutdown_waiters);
+	active_operations++;
+	intr_set_level (old);
+}
+
+void
+filesys_operation_end (int *scope UNUSED) {
+	struct thread *current = thread_current ();
+	ASSERT (current->filesys_depth > 0);
+	if (--current->filesys_depth != 0)
+		return;
+	enum intr_level old = intr_disable ();
+	ASSERT (active_operations > 0);
+	if (--active_operations == 0 && stopping)
+		sema_up (&operations_drained);
+	intr_set_level (old);
+}
+
 static void do_format (void);
 
 /* Initializes the file system module.
  * If FORMAT is true, reformats the file system. */
 void
 filesys_init (bool format) {
+	sema_init (&operations_drained, 0);
+	sema_init (&shutdown_waiters, 0);
 	filesys_disk = disk_get (0, 1);
 	if (filesys_disk == NULL)
 		PANIC ("hd0:1 (hdb) not present, file system initialization failed");
@@ -57,22 +86,21 @@ filesys_init (bool format) {
  * to disk. */
 void
 filesys_done (void) {
-#ifdef USERPROG
-	/* Quiesce foreground filesystem operations before stopping cache workers. */
-	bool acquired = !lock_held_by_current_thread (&filesys_lock);
-	if (acquired)
-		lock_acquire (&filesys_lock);
-#endif
+	ASSERT (thread_current ()->filesys_depth == 0);
+	enum intr_level old = intr_disable ();
+	stopping = true;
+	while (active_operations != 0)
+		sema_down (&operations_drained);
+	intr_set_level (old);
+	/* Shutdown itself may close metadata handles after the gate is drained. */
+	thread_current ()->filesys_depth = 1;
 #ifdef EFILESYS
 	fat_close ();
 #else
 	free_map_close ();
 #endif
 	buffer_cache_done ();
-#ifdef USERPROG
-	if (acquired)
-		lock_release (&filesys_lock);
-#endif
+	thread_current ()->filesys_depth = 0;
 }
 
 /* Creates a file named NAME with the given INITIAL_SIZE.
@@ -81,6 +109,7 @@ filesys_done (void) {
  * or if internal memory allocation fails. */
 bool
 filesys_create (const char *name, off_t initial_size) {
+	FILESYS_OPERATION;
 	disk_sector_t inode_sector = 0;
 	char leaf[NAME_MAX + 1];
 	struct dir *dir = dir_resolve_parent (name, leaf);
@@ -105,12 +134,15 @@ filesys_create (const char *name, off_t initial_size) {
 			fat_remove_chain (inode_cluster, 0);
 	}
 #else
-	bool success = (dir != NULL
-			&& free_map_allocate (1, &inode_sector)
-			&& inode_create (inode_sector, initial_size)
-			&& dir_add (dir, leaf, inode_sector));
-	if (!success && inode_sector != 0)
-		free_map_release (inode_sector, 1);
+	bool created = free_map_allocate (1, &inode_sector) &&
+	               inode_create (inode_sector, initial_size);
+	bool success = created && dir_add (dir, leaf, inode_sector);
+	if (!success && inode_sector != 0) {
+		if (created)
+			inode_discard (inode_sector);
+		else
+			free_map_release (inode_sector, 1);
+	}
 #endif
 
 	dir_close (dir);
@@ -125,6 +157,7 @@ filesys_create (const char *name, off_t initial_size) {
  * or if an internal memory allocation fails. */
 struct file *
 filesys_open (const char *name) {
+	FILESYS_OPERATION;
 	return file_open (dir_resolve_inode (name));
 }
 
@@ -134,14 +167,11 @@ filesys_open (const char *name) {
  * or if an internal memory allocation fails. */
 bool
 filesys_remove (const char *name) {
+	FILESYS_OPERATION;
 	char leaf[NAME_MAX + 1];
 	struct dir *dir = dir_resolve_parent (name, leaf);
-	struct inode *inode = NULL;
 	bool success = dir != NULL && strcmp (leaf, ".") && strcmp (leaf, "..") &&
-	               dir_lookup (dir, leaf, &inode) &&
-	               (name[strlen (name) - 1] != '/' || inode_is_directory (inode)) &&
-	               dir_remove (dir, leaf);
-	inode_close (inode);
+	               dir_remove (dir, leaf, name[strlen (name) - 1] == '/');
 	dir_close (dir);
 	return success;
 }
@@ -150,6 +180,7 @@ filesys_remove (const char *name) {
    been initialized. Failed publication releases both metadata and data. */
 bool
 filesys_mkdir (const char *name) {
+	FILESYS_OPERATION;
 #ifdef EFILESYS
 	char leaf[NAME_MAX + 1];
 	struct dir *parent = dir_resolve_parent (name, leaf);
@@ -183,6 +214,7 @@ filesys_mkdir (const char *name) {
 /* Replace CWD only after the entire destination path has been resolved. */
 bool
 filesys_chdir (const char *name) {
+	FILESYS_OPERATION;
 #ifdef USERPROG
 	struct dir *next = dir_open (dir_resolve_inode (name));
 	if (next == NULL)
@@ -200,6 +232,7 @@ filesys_chdir (const char *name) {
    visible only once both its type and complete target have been written. */
 int
 filesys_symlink (const char *target, const char *linkpath) {
+	FILESYS_OPERATION;
 #ifdef EFILESYS
 	if (target == NULL)
 		return -1;

@@ -24,7 +24,6 @@
 #include "threads/flags.h"
 #include "intrinsic.h"
 
-struct lock filesys_lock;
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -44,7 +43,6 @@ void syscall_handler (struct intr_frame *);
 
 void
 syscall_init (void) {
-	lock_init (&filesys_lock);
 	write_msr(MSR_STAR, ((uint64_t)SEL_UCSEG - 0x10) << 48  |
 			((uint64_t)SEL_KCSEG) << 32);
 	write_msr(MSR_LSTAR, (uint64_t) syscall_entry);
@@ -168,9 +166,7 @@ sys_open (const char *user) {
 		palloc_free_page (name);
 		return -1;
 	}
-	lock_acquire (&filesys_lock);
 	struct file *file = filesys_open (name);
-	lock_release (&filesys_lock);
 	palloc_free_page (name);
 	if (file == NULL) {
 		free (entry);
@@ -188,9 +184,7 @@ sys_create (const char *user, unsigned size) {
 	char *name = copy_user_string (user);
 	if (name == NULL)
 		return false;
-	lock_acquire (&filesys_lock);
 	bool success = size <= INT32_MAX && filesys_create (name, size);
-	lock_release (&filesys_lock);
 	palloc_free_page (name);
 	return success;
 }
@@ -200,9 +194,7 @@ sys_remove (const char *user) {
 	char *name = copy_user_string (user);
 	if (name == NULL)
 		return false;
-	lock_acquire (&filesys_lock);
 	bool success = filesys_remove (name);
-	lock_release (&filesys_lock);
 	palloc_free_page (name);
 	return success;
 }
@@ -212,9 +204,7 @@ sys_close (int fd) {
 	struct process_fd *entry = lookup_fd (fd);
 	if (entry != NULL) {
 		thread_current ()->fd_table[fd] = NULL;
-		lock_acquire (&filesys_lock);
 		process_fd_release (entry);
-		lock_release (&filesys_lock);
 	}
 }
 
@@ -225,12 +215,10 @@ sys_dup2 (int oldfd, int newfd) {
 		return -1;
 	if (oldfd == newfd)
 		return newfd;
-	lock_acquire (&filesys_lock);
 	/* Retain first: newfd may already be an alias of oldfd. */
 	entry->references++;
 	process_fd_release (thread_current ()->fd_table[newfd]);
 	thread_current ()->fd_table[newfd] = entry;
-	lock_release (&filesys_lock);
 	return newfd;
 }
 
@@ -243,11 +231,9 @@ sys_readdir (int fd, char *user_name) {
 	if (entry == NULL || entry->file == NULL)
 		return false;
 	char name[NAME_MAX + 1] = {0};
-	lock_acquire (&filesys_lock);
 	off_t position = entry->position;
 	bool success = dir_read_next (file_get_inode (entry->file), &position, name);
 	entry->position = position;
-	lock_release (&filesys_lock);
 	if (success) {
 #ifdef VM
 		if (!vm_copy_user (name, user_name, sizeof name, true))
@@ -287,10 +273,9 @@ sys_read (int fd, void *buffer, unsigned size) {
 				copy[i] = input_getc ();
 			count = chunk;
 		} else {
-			lock_acquire (&filesys_lock);
 			/* The base filesystem cannot grow beyond signed inode offsets.
 			   An unsigned position past EOF must not be narrowed first. */
-			if (entry->position >= (uint32_t) file_length (file))
+			if (entry->position > INT32_MAX)
 				count = 0;
 			else {
 				count = file_read_at (file, copy, chunk, (off_t) entry->position);
@@ -299,7 +284,6 @@ sys_read (int fd, void *buffer, unsigned size) {
 					inode_readahead (file_get_inode (file), entry->position - 1);
 				}
 			}
-			lock_release (&filesys_lock);
 		}
 		if (count <= 0)
 			break;
@@ -351,7 +335,6 @@ sys_write (int fd, const void *buffer, unsigned size) {
 			putbuf (copy, chunk);
 			count = chunk;
 		} else {
-			lock_acquire (&filesys_lock);
 			/* Keep the unsigned descriptor position out of signed inode offsets. */
 			bool valid_position = entry->position <= INT32_MAX;
 #ifndef EFILESYS
@@ -364,7 +347,6 @@ sys_write (int fd, const void *buffer, unsigned size) {
 				if (count > 0)
 					entry->position += count;
 			}
-			lock_release (&filesys_lock);
 		}
 		if (count <= 0)
 			break;
@@ -418,9 +400,7 @@ syscall_handler (struct intr_frame *f) {
 			                 copy_user_string_cleanup ((const char *) f->R.rsi, target) : NULL;
 			f->R.rax = -1;
 			if (target != NULL && linkpath != NULL) {
-				lock_acquire (&filesys_lock);
 				f->R.rax = filesys_symlink (target, linkpath);
-				lock_release (&filesys_lock);
 			}
 			palloc_free_page (linkpath);
 			palloc_free_page (target);
@@ -432,9 +412,7 @@ syscall_handler (struct intr_frame *f) {
 			char *path = copy_user_string ((const char *) f->R.rdi);
 			f->R.rax = false;
 			if (path != NULL) {
-				lock_acquire (&filesys_lock);
 				f->R.rax = make_directory ? filesys_mkdir (path) : filesys_chdir (path);
-				lock_release (&filesys_lock);
 				palloc_free_page (path);
 			}
 			break;
@@ -448,10 +426,8 @@ syscall_handler (struct intr_frame *f) {
 			struct process_fd *entry = lookup_fd ((int) f->R.rdi);
 			f->R.rax = get_number ? -1 : 0;
 			if (entry != NULL && entry->file != NULL) {
-				lock_acquire (&filesys_lock);
 				struct inode *inode = file_get_inode (entry->file);
 				f->R.rax = get_number ? inode_get_inumber (inode) : inode_is_directory (inode);
-				lock_release (&filesys_lock);
 			}
 			break;
 		}
@@ -483,7 +459,6 @@ syscall_handler (struct intr_frame *f) {
 			uint64_t call = f->R.rax;
 			f->R.rax = -1;
 			if (file != NULL) {
-				lock_acquire (&filesys_lock);
 				if (call == SYS_FILESIZE)
 					f->R.rax = file_length (file);
 				else if (call == SYS_TELL)
@@ -491,7 +466,6 @@ syscall_handler (struct intr_frame *f) {
 				else
 					thread_current ()->fd_table[(int) f->R.rdi]->position =
 						(unsigned) f->R.rsi;
-				lock_release (&filesys_lock);
 			}
 			break;
 		}

@@ -5,7 +5,7 @@
 
 #define FD_COUNT 512
 
-/* Caller holds filesys_lock when releasing an open description. */
+/* Release one process-owned descriptor alias. */
 void process_fd_release (struct process_fd *entry);
 
 tid_t process_create_initd (const char *file_name);

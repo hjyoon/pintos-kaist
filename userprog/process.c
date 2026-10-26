@@ -137,7 +137,7 @@ copy_process_name (const char *name, size_t length) {
 	return copy;
 }
 
-/* All references, including those used by dup2, are protected by filesys_lock. */
+/* Open descriptions and dup2 aliases belong to one single-threaded process. */
 void
 process_fd_release (struct process_fd *entry) {
 	if (entry != NULL && --entry->references == 0) {
@@ -187,10 +187,8 @@ process_create_initd (const char *command) {
 		free (aux);
 		return TID_ERROR;
 	}
-	lock_acquire (&filesys_lock);
 	aux->cwd = thread_current ()->cwd != NULL ?
 	           dir_reopen (thread_current ()->cwd) : dir_open_root ();
-	lock_release (&filesys_lock);
 	if (aux->cwd == NULL) {
 		free (full_name);
 		palloc_free_page (copy);
@@ -209,9 +207,7 @@ process_create_initd (const char *command) {
 	aux->status = status;
 	tid_t tid = thread_create (thread_name, PRI_DEFAULT, initd, aux);
 	if (tid == TID_ERROR) {
-		lock_acquire (&filesys_lock);
 		dir_close (aux->cwd);
-		lock_release (&filesys_lock);
 		free (full_name);
 		palloc_free_page (copy);
 		free (status);
@@ -311,9 +307,7 @@ __do_fork (void *aux_) {
 #endif
 	bool success = process_init ();
 	if (success) {
-		lock_acquire (&filesys_lock);
 		current->cwd = dir_reopen (parent->cwd);
-		lock_release (&filesys_lock);
 		success = current->cwd != NULL;
 	}
 	if (success) {
@@ -331,7 +325,6 @@ __do_fork (void *aux_) {
 #endif
 	}
 	if (success) {
-		lock_acquire (&filesys_lock);
 		/* Preserve the parent's alias groups while copying file descriptions,
 		   as required by Pintos's independent parent/child file positions. */
 		for (int fd = 0; fd < FD_COUNT; fd++) {
@@ -369,7 +362,6 @@ __do_fork (void *aux_) {
 			current->executable = file_duplicate (parent->executable);
 			success = current->executable != NULL;
 		}
-		lock_release (&filesys_lock);
 	}
 	status->fork_success = success;
 	sema_up (&status->fork_done);
@@ -418,11 +410,9 @@ process_exec (void *f_name) {
 		goto error;
 #endif
 	/* exec preserves descriptors and the original process name. */
-	lock_acquire (&filesys_lock);
 	file_close (thread_current ()->executable);
 	thread_current ()->executable = NULL;
 	bool loaded = load (argv[0], &_if);
-	lock_release (&filesys_lock);
 #ifdef VM
 	if (loaded && !setup_stack (&_if))
 		loaded = false;
@@ -477,7 +467,6 @@ process_exit (void) {
 	current->process_name = NULL;
 	process_cleanup ();
 	if (current->fd_table != NULL || current->executable != NULL || current->cwd != NULL) {
-		lock_acquire (&filesys_lock);
 		if (current->fd_table != NULL)
 			for (int fd = 0; fd < FD_COUNT; fd++)
 				process_fd_release (current->fd_table[fd]);
@@ -485,7 +474,6 @@ process_exit (void) {
 		current->executable = NULL;
 		dir_close (current->cwd);
 		current->cwd = NULL;
-		lock_release (&filesys_lock);
 		palloc_free_page (current->fd_table);
 		current->fd_table = NULL;
 	}
@@ -629,6 +617,8 @@ load (const char *file_name, struct intr_frame *if_) {
 		printf ("load: %s: open failed\n", file_name);
 		goto done;
 	}
+	/* Protect headers as well as lazy code pages while loading. */
+	file_deny_write (file);
 
 	/* Read and verify executable header. */
 	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -711,7 +701,6 @@ load (const char *file_name, struct intr_frame *if_) {
 
 done:
 	if (success) {
-		file_deny_write (file);
 		t->executable = file;
 		file = NULL;
 	}
@@ -872,11 +861,9 @@ install_page (void *upage, void *kpage, bool writable) {
 static bool
 lazy_load_segment (struct page *page, void *aux) {
 	struct lazy_load_info *info = aux;
-	lock_acquire (&filesys_lock);
 	bool success = file_read_at (info->file, page->frame->kva,
 	                            info->read_bytes, info->offset) ==
 	               (off_t) info->read_bytes;
-	lock_release (&filesys_lock);
 	return success;
 }
 
@@ -908,7 +895,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-		/* load() holds filesys_lock. Each pending page owns its backing ref. */
+		/* Each pending page owns its backing reference. */
 		struct lazy_load_info *aux = malloc (sizeof *aux);
 		if (aux == NULL)
 			return false;

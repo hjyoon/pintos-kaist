@@ -364,3 +364,49 @@ cond_broadcast (struct condition *cond, struct lock *lock) {
 	while (!list_empty (&cond->waiters))
 		cond_signal (cond, lock);
 }
+
+void
+rw_lock_init (struct rw_lock *rw) {
+	lock_init (&rw->mutex);
+	cond_init (&rw->changed);
+	rw->readers = rw->writers_waiting = 0;
+	rw->writer = false;
+}
+
+void
+rw_lock_read (struct rw_lock *rw) {
+	lock_acquire (&rw->mutex);
+	while (rw->writer || rw->writers_waiting != 0)
+		cond_wait (&rw->changed, &rw->mutex);
+	rw->readers++;
+	lock_release (&rw->mutex);
+}
+
+void
+rw_unlock_read (struct rw_lock *rw) {
+	lock_acquire (&rw->mutex);
+	ASSERT (rw->readers > 0);
+	if (--rw->readers == 0)
+		cond_broadcast (&rw->changed, &rw->mutex);
+	lock_release (&rw->mutex);
+}
+
+void
+rw_lock_write (struct rw_lock *rw) {
+	lock_acquire (&rw->mutex);
+	rw->writers_waiting++;
+	while (rw->writer || rw->readers != 0)
+		cond_wait (&rw->changed, &rw->mutex);
+	rw->writers_waiting--;
+	rw->writer = true;
+	lock_release (&rw->mutex);
+}
+
+void
+rw_unlock_write (struct rw_lock *rw) {
+	lock_acquire (&rw->mutex);
+	ASSERT (rw->writer);
+	rw->writer = false;
+	cond_broadcast (&rw->changed, &rw->mutex);
+	lock_release (&rw->mutex);
+}

@@ -536,9 +536,7 @@ copy_spt (struct supplemental_page_table *dst,
 				if (info == NULL)
 					return false;
 				*info = *(struct lazy_load_info *) source->uninit.aux;
-				lock_acquire (&filesys_lock);
 				info->file = file_reopen (info->file);
-				lock_release (&filesys_lock);
 				if (info->file == NULL) {
 					free (info);
 					return false;
@@ -547,9 +545,7 @@ copy_spt (struct supplemental_page_table *dst,
 			if (!vm_alloc_page_with_initializer (source->uninit.type, source->va,
 			                                    source->writable, source->uninit.init, info)) {
 				if (info != NULL) {
-					lock_acquire (&filesys_lock);
 					file_close (info->file);
-					lock_release (&filesys_lock);
 					free (info);
 				}
 				return false;
@@ -567,9 +563,7 @@ copy_spt (struct supplemental_page_table *dst,
 				anon_share (copy, source);
 			else if (page_get_type (source) == VM_FILE) {
 				copy->file = source->file;
-				lock_acquire (&filesys_lock);
 				copy->file.file = file_reopen (source->file.file);
-				lock_release (&filesys_lock);
 				if (copy->file.file == NULL) {
 					free (copy);
 					return false;

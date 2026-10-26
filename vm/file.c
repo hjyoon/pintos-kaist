@@ -53,12 +53,10 @@ file_backed_initializer (struct page *page, enum vm_type type UNUSED, void *kva)
 static bool
 file_backed_swap_in (struct page *page, void *kva) {
 	struct file_page *file = &page->file;
-	lock_acquire (&filesys_lock);
 	bool success = file_read_at (file->file, kva, file->read_bytes, file->offset)
 	               == (off_t) file->read_bytes;
 	if (success && file->read_bytes > 0)
 		inode_readahead (file_get_inode (file->file), file->offset + file->read_bytes - 1);
-	lock_release (&filesys_lock);
 	if (success)
 		memset ((uint8_t *) kva + file->read_bytes, 0, PGSIZE - file->read_bytes);
 	return success;
@@ -71,10 +69,8 @@ write_back (struct page *page) {
 	if (frame == NULL || !pml4_is_dirty (page->pml4, page->va))
 		return true;
 	struct file_page *file = &page->file;
-	lock_acquire (&filesys_lock);
 	bool success = file_write_at (file->file, frame->kva, file->read_bytes,
 	                             file->offset) == (off_t) file->read_bytes;
-	lock_release (&filesys_lock);
 	if (success)
 		pml4_set_dirty (page->pml4, page->va, false);
 	return success;
@@ -91,9 +87,7 @@ file_backed_swap_out (struct page *page) {
 static void
 file_backed_destroy (struct page *page) {
 	write_back (page);
-	lock_acquire (&filesys_lock);
 	file_close (page->file.file);
-	lock_release (&filesys_lock);
 	if (--page->file.backing->references == 0)
 		free (page->file.backing);
 }
@@ -116,9 +110,7 @@ do_mmap (void *addr, size_t length, int writable, struct file *file, off_t offse
 		    pml4_get_page (thread_current ()->pml4, va) != NULL)
 			return NULL;
 	}
-	lock_acquire (&filesys_lock);
 	off_t file_size = file_length (file);
-	lock_release (&filesys_lock);
 	if (file_size == 0)
 		return NULL;
 
@@ -137,15 +129,11 @@ do_mmap (void *addr, size_t length, int writable, struct file *file, off_t offse
 		/* Pages beyond EOF contain zeros and have no bytes to write back. */
 		info->offset = bytes != 0 ? (off_t) position : 0;
 		info->read_bytes = bytes;
-		lock_acquire (&filesys_lock);
 		info->file = file_reopen (file);
-		lock_release (&filesys_lock);
 		void *va = (void *) (start + displacement);
 		if (info->file == NULL ||
 		    !vm_alloc_page_with_initializer (VM_FILE, va, writable != 0, NULL, info)) {
-			lock_acquire (&filesys_lock);
 			file_close (info->file);
-			lock_release (&filesys_lock);
 			free (info);
 			break;
 		}

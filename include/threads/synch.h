@@ -39,6 +39,21 @@ void cond_wait (struct condition *, struct lock *);
 void cond_signal (struct condition *, struct lock *);
 void cond_broadcast (struct condition *, struct lock *);
 
+/* Shared access to stable file contents; exclusive access for growth and
+   write denial. Waiting writers prevent a stream of readers from starving. */
+struct rw_lock {
+	struct lock mutex;
+	struct condition changed;
+	unsigned readers, writers_waiting;
+	bool writer;
+};
+
+void rw_lock_init (struct rw_lock *);
+void rw_lock_read (struct rw_lock *);
+void rw_unlock_read (struct rw_lock *);
+void rw_lock_write (struct rw_lock *);
+void rw_unlock_write (struct rw_lock *);
+
 /* Optimization barrier.
  *
  * The compiler will not reorder operations across an

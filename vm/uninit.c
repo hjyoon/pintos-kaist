@@ -63,9 +63,7 @@ uninit_initialize (struct page *page, void *kva) {
 	bool success = initialized && (init == NULL || init (page, aux));
 	if (aux != NULL) {
 		struct lazy_load_info *info = aux;
-		lock_acquire (&filesys_lock);
 		file_close (info->file);
-		lock_release (&filesys_lock);
 		free (info);
 	}
 	if (page->operations->type == VM_UNINIT)
@@ -81,9 +79,7 @@ static void
 uninit_destroy (struct page *page) {
 	struct lazy_load_info *info = page->uninit.aux;
 	if (info != NULL) {
-		lock_acquire (&filesys_lock);
 		file_close (info->file);
-		lock_release (&filesys_lock);
 		free (info);
 	}
 }
