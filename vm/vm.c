@@ -3,6 +3,16 @@
 #include "threads/malloc.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
+#include "threads/mmu.h"
+#include "threads/synch.h"
+#include "threads/vaddr.h"
+
+static struct list frames;
+static struct lock frames_lock;
+
+static uint64_t page_hash (const struct hash_elem *, void *);
+static bool page_less (const struct hash_elem *, const struct hash_elem *, void *);
+static void destroy_spt_page (struct hash_elem *, void *);
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -15,7 +25,8 @@ vm_init (void) {
 #endif
 	register_inspect_intr ();
 	/* DO NOT MODIFY UPPER LINES. */
-	/* TODO: Your code goes here. */
+	list_init (&frames);
+	lock_init (&frames_lock);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -44,7 +55,7 @@ bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
 
-	ASSERT (VM_TYPE(type) != VM_UNINIT)
+	ASSERT (VM_TYPE(type) != VM_UNINIT);
 
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 
@@ -60,29 +71,68 @@ err:
 	return false;
 }
 
-/* Find VA from spt and return page. On error, return NULL. */
-struct page *
-spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
-	struct page *page = NULL;
-	/* TODO: Fill this function. */
-
-	return page;
+/* Hash page-aligned addresses, so any byte in a page finds the same entry. */
+static uint64_t
+page_hash (const struct hash_elem *elem, void *aux UNUSED) {
+	const struct page *page = hash_entry (elem, struct page, spt_elem);
+	return hash_bytes (&page->va, sizeof page->va);
 }
 
-/* Insert PAGE into spt with validation. */
-bool
-spt_insert_page (struct supplemental_page_table *spt UNUSED,
-		struct page *page UNUSED) {
-	int succ = false;
-	/* TODO: Fill this function. */
+static bool
+page_less (const struct hash_elem *a, const struct hash_elem *b,
+           void *aux UNUSED) {
+	const struct page *left = hash_entry (a, struct page, spt_elem);
+	const struct page *right = hash_entry (b, struct page, spt_elem);
+	return (uintptr_t) left->va < (uintptr_t) right->va;
+}
 
-	return succ;
+/* Find VA from spt and return page. On error, return NULL. */
+struct page *
+spt_find_page (struct supplemental_page_table *spt, void *va) {
+	if (spt == NULL || !spt->initialized || va == NULL || !is_user_vaddr (va))
+		return NULL;
+	struct page key = { .va = pg_round_down (va) };
+	struct hash_elem *elem = hash_find (&spt->pages, &key.spt_elem);
+	return elem != NULL ? hash_entry (elem, struct page, spt_elem) : NULL;
+}
+
+/* Ownership transfers to SPT only on a successful insertion. */
+bool
+spt_insert_page (struct supplemental_page_table *spt, struct page *page) {
+	if (spt == NULL || !spt->initialized || page == NULL ||
+	    page->va == NULL || !is_user_vaddr (page->va) || pg_ofs (page->va) != 0)
+		return false;
+	return hash_insert (&spt->pages, &page->spt_elem) == NULL;
+}
+
+/* Type-specific destruction runs while its mapping and frame are still
+   available (e.g. for a later file-backed writeback).  The SPT owns the
+   generic mapping and frame, and releases them after that callback. */
+static void
+destroy_spt_page (struct hash_elem *elem, void *aux UNUSED) {
+	struct page *page = hash_entry (elem, struct page, spt_elem);
+	struct frame *frame = page->frame;
+	void *va = page->va;
+	if (frame != NULL) {
+		lock_acquire (&frames_lock);
+		list_remove (&frame->elem);
+		lock_release (&frames_lock);
+	}
+	vm_dealloc_page (page);
+	if (frame != NULL) {
+		if (pml4_get_page (frame->pml4, va) == frame->kva)
+			pml4_clear_page (frame->pml4, va);
+		palloc_free_page (frame->kva);
+		free (frame);
+	}
 }
 
 void
 spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
-	vm_dealloc_page (page);
-	return true;
+	if (page != NULL && spt_find_page (spt, page->va) == page) {
+		hash_delete (&spt->pages, &page->spt_elem);
+		destroy_spt_page (&page->spt_elem, NULL);
+	}
 }
 
 /* Get the struct frame, that will be evicted. */
@@ -104,17 +154,18 @@ vm_evict_frame (void) {
 	return NULL;
 }
 
-/* palloc() and get frame. If there is no available page, evict the page
- * and return it. This always return valid address. That is, if the user pool
- * memory is full, this function evicts the frame to get the available memory
- * space.*/
+/* Allocate metadata and a zeroed user-pool frame.  Eviction is added in
+   the swapping stage; exhaustion currently fails without leaking resources. */
 static struct frame *
 vm_get_frame (void) {
-	struct frame *frame = NULL;
-	/* TODO: Fill this function. */
-
-	ASSERT (frame != NULL);
-	ASSERT (frame->page == NULL);
+	struct frame *frame = calloc (1, sizeof *frame);
+	if (frame == NULL)
+		return NULL;
+	frame->kva = palloc_get_page (PAL_USER | PAL_ZERO);
+	if (frame->kva == NULL) {
+		free (frame);
+		return NULL;
+	}
 	return frame;
 }
 
@@ -126,17 +177,18 @@ vm_stack_growth (void *addr UNUSED) {
 /* Handle the fault on write_protected page */
 static bool
 vm_handle_wp (struct page *page UNUSED) {
+	/* Copy-on-write is a later, optional stage. */
+	return false;
 }
 
 /* Return true on success */
 bool
-vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
-		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
-	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
-	struct page *page = NULL;
-	/* TODO: Validate the fault */
-	/* TODO: Your code goes here */
-
+vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr,
+		bool user UNUSED, bool write, bool not_present) {
+	struct page *page = spt_find_page (&thread_current ()->spt, addr);
+	/* Unknown addresses and protection faults are not demand allocations. */
+	if (!not_present || page == NULL || (write && !page->writable))
+		return false;
 	return vm_do_claim_page (page);
 }
 
@@ -148,43 +200,71 @@ vm_dealloc_page (struct page *page) {
 	free (page);
 }
 
-/* Claim the page that allocate on VA. */
+/* Claim an existing SPT entry; an absent entry is never implicitly created. */
 bool
-vm_claim_page (void *va UNUSED) {
-	struct page *page = NULL;
-	/* TODO: Fill this function */
-
-	return vm_do_claim_page (page);
+vm_claim_page (void *va) {
+	struct page *page = spt_find_page (&thread_current ()->spt, va);
+	return page != NULL && vm_do_claim_page (page);
 }
 
-/* Claim the PAGE and set up the mmu. */
+/* Claim PAGE and set up the MMU.  Only publish a resident frame after both
+   mapping and initialization succeed.  Roll back every acquired resource. */
 static bool
 vm_do_claim_page (struct page *page) {
-	struct frame *frame = vm_get_frame ();
+	uint64_t *pml4 = thread_current ()->pml4;
+	if (page == NULL || pml4 == NULL || page->operations == NULL ||
+	    page->operations->swap_in == NULL)
+		return false;
+	if (page->frame != NULL)
+		return page->frame->pml4 == pml4 &&
+		       pml4_get_page (pml4, page->va) == page->frame->kva;
+	if (pml4_get_page (pml4, page->va) != NULL)
+		return false;
 
-	/* Set links */
+	struct frame *frame = vm_get_frame ();
+	if (frame == NULL)
+		return false;
+	frame->pml4 = pml4;
 	frame->page = page;
 	page->frame = frame;
+	if (!pml4_set_page (pml4, page->va, frame->kva, page->writable))
+		goto fail;
+	if (!swap_in (page, frame->kva)) {
+		pml4_clear_page (pml4, page->va);
+		goto fail;
+	}
+	lock_acquire (&frames_lock);
+	list_push_back (&frames, &frame->elem);
+	lock_release (&frames_lock);
+	return true;
 
-	/* TODO: Insert page table entry to map page's VA to frame's PA. */
-
-	return swap_in (page, frame->kva);
+fail:
+	page->frame = NULL;
+	frame->page = NULL;
+	palloc_free_page (frame->kva);
+	free (frame);
+	return false;
 }
 
-/* Initialize new supplemental page table */
+/* The caller must kill an existing table before initializing it again. */
 void
-supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
+supplemental_page_table_init (struct supplemental_page_table *spt) {
+	spt->initialized = hash_init (&spt->pages, page_hash, page_less, NULL);
 }
 
-/* Copy supplemental page table from src to dst */
+/* Page-type-specific copying is implemented in the anonymous-page stage.
+   Reject nonempty copies for now instead of reporting a partial fork. */
 bool
-supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
-		struct supplemental_page_table *src UNUSED) {
+supplemental_page_table_copy (struct supplemental_page_table *dst,
+		struct supplemental_page_table *src) {
+	return dst->initialized && src->initialized && hash_empty (&src->pages);
 }
 
-/* Free the resource hold by the supplemental page table */
+/* Destroy mappings before process_cleanup destroys their owning PML4. */
 void
-supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
-	/* TODO: Destroy all the supplemental_page_table hold by thread and
-	 * TODO: writeback all the modified contents to the storage. */
+supplemental_page_table_kill (struct supplemental_page_table *spt) {
+	if (spt->initialized) {
+		hash_destroy (&spt->pages, destroy_spt_page);
+		spt->initialized = false;
+	}
 }

@@ -382,6 +382,11 @@ process_exec (void *f_name) {
 	_if.eflags = FLAG_IF | FLAG_MBS;
 
 	process_cleanup ();
+#ifdef VM
+	supplemental_page_table_init (&thread_current ()->spt);
+	if (!thread_current ()->spt.initialized)
+		goto error;
+#endif
 	/* exec preserves descriptors and the original process name. */
 	lock_acquire (&filesys_lock);
 	file_close (thread_current ()->executable);
