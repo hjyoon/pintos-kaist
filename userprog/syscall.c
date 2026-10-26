@@ -7,6 +7,7 @@
 #include "threads/init.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
+#include "filesys/inode.h"
 #include "devices/input.h"
 #include "userprog/process.h"
 
@@ -256,8 +257,10 @@ sys_read (int fd, void *buffer, unsigned size) {
 				count = 0;
 			else {
 				count = file_read_at (file, copy, chunk, (off_t) entry->position);
-				if (count > 0)
+				if (count > 0) {
 					entry->position += count;
+					inode_readahead (file_get_inode (file), entry->position - 1);
+				}
 			}
 			lock_release (&filesys_lock);
 		}

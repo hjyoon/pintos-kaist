@@ -1,6 +1,7 @@
 /* file.c: Implementation of memory backed file object (mmaped object). */
 
 #include "vm/vm.h"
+#include "filesys/inode.h"
 #include <string.h>
 #include "threads/malloc.h"
 #include "threads/mmu.h"
@@ -55,6 +56,8 @@ file_backed_swap_in (struct page *page, void *kva) {
 	lock_acquire (&filesys_lock);
 	bool success = file_read_at (file->file, kva, file->read_bytes, file->offset)
 	               == (off_t) file->read_bytes;
+	if (success && file->read_bytes > 0)
+		inode_readahead (file_get_inode (file->file), file->offset + file->read_bytes - 1);
 	lock_release (&filesys_lock);
 	if (success)
 		memset ((uint8_t *) kva + file->read_bytes, 0, PGSIZE - file->read_bytes);

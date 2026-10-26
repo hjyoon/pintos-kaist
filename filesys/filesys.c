@@ -7,6 +7,11 @@
 #include "filesys/inode.h"
 #include "filesys/directory.h"
 #include "devices/disk.h"
+#include "filesys/page_cache.h"
+#ifdef USERPROG
+#include "userprog/syscall.h"
+#include "threads/synch.h"
+#endif
 #ifdef EFILESYS
 #include "filesys/fat.h"
 #endif
@@ -24,6 +29,7 @@ filesys_init (bool format) {
 	if (filesys_disk == NULL)
 		PANIC ("hd0:1 (hdb) not present, file system initialization failed");
 
+	buffer_cache_init ();
 	inode_init ();
 
 #ifdef EFILESYS
@@ -42,17 +48,28 @@ filesys_init (bool format) {
 
 	free_map_open ();
 #endif
+	buffer_cache_start ();
 }
 
 /* Shuts down the file system module, writing any unwritten data
  * to disk. */
 void
 filesys_done (void) {
-	/* Original FS */
+#ifdef USERPROG
+	/* Quiesce foreground filesystem operations before stopping cache workers. */
+	bool acquired = !lock_held_by_current_thread (&filesys_lock);
+	if (acquired)
+		lock_acquire (&filesys_lock);
+#endif
 #ifdef EFILESYS
 	fat_close ();
 #else
 	free_map_close ();
+#endif
+	buffer_cache_done ();
+#ifdef USERPROG
+	if (acquired)
+		lock_release (&filesys_lock);
 #endif
 }
 

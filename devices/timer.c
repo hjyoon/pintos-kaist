@@ -7,6 +7,9 @@
 #include "threads/io.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#ifdef FILESYS
+#include "filesys/page_cache.h"
+#endif
 
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -156,6 +159,9 @@ timer_interrupt (struct intr_frame *args UNUSED) {
 		list_pop_front (&sleep_list);
 		thread_unblock (t);
 	}
+#ifdef FILESYS
+	buffer_cache_tick ();
+#endif
 	check_preemption ();
 }
 

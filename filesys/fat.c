@@ -1,6 +1,7 @@
 #include "filesys/fat.h"
 #include "devices/disk.h"
 #include "filesys/filesys.h"
+#include "filesys/page_cache.h"
 #include "threads/malloc.h"
 #include "threads/synch.h"
 #include <stdio.h>
@@ -37,13 +38,7 @@ fat_init (void) {
 	if (fat_fs == NULL)
 		PANIC ("FAT init failed");
 
-	// Read boot sector from the disk
-	unsigned int *bounce = malloc (DISK_SECTOR_SIZE);
-	if (bounce == NULL)
-		PANIC ("FAT init failed");
-	disk_read (filesys_disk, FAT_BOOT_SECTOR, bounce);
-	memcpy (&fat_fs->bs, bounce, sizeof (fat_fs->bs));
-	free (bounce);
+	buffer_cache_read (FAT_BOOT_SECTOR, &fat_fs->bs, 0, sizeof fat_fs->bs);
 
 	// Extract FAT info
 	if (fat_fs->bs.magic != FAT_MAGIC)
@@ -57,59 +52,32 @@ fat_open (void) {
 	if (fat_fs->fat == NULL)
 		PANIC ("FAT load failed");
 
-	// Load FAT directly from the disk
 	uint8_t *buffer = (uint8_t *) fat_fs->fat;
-	off_t bytes_read = 0;
-	off_t bytes_left = sizeof (fat_fs->fat);
-	const off_t fat_size_in_bytes = fat_fs->fat_length * sizeof (cluster_t);
-	for (unsigned i = 0; i < fat_fs->bs.fat_sectors; i++) {
-		bytes_left = fat_size_in_bytes - bytes_read;
-		if (bytes_left >= DISK_SECTOR_SIZE) {
-			disk_read (filesys_disk, fat_fs->bs.fat_start + i,
-			           buffer + bytes_read);
-			bytes_read += DISK_SECTOR_SIZE;
-		} else {
-			uint8_t *bounce = malloc (DISK_SECTOR_SIZE);
-			if (bounce == NULL)
-				PANIC ("FAT load failed");
-			disk_read (filesys_disk, fat_fs->bs.fat_start + i, bounce);
-			memcpy (buffer + bytes_read, bounce, bytes_left);
-			bytes_read += bytes_left;
-			free (bounce);
-		}
+	size_t bytes = fat_fs->fat_length * sizeof (cluster_t);
+	for (unsigned i = 0; bytes > 0; i++) {
+		size_t count = bytes < DISK_SECTOR_SIZE ? bytes : DISK_SECTOR_SIZE;
+		buffer_cache_read (fat_fs->bs.fat_start + i, buffer, 0, count);
+		buffer += count;
+		bytes -= count;
 	}
 }
 
 void
 fat_close (void) {
-	// Write FAT boot sector
-	uint8_t *bounce = calloc (1, DISK_SECTOR_SIZE);
-	if (bounce == NULL)
-		PANIC ("FAT close failed");
-	memcpy (bounce, &fat_fs->bs, sizeof (fat_fs->bs));
-	disk_write (filesys_disk, FAT_BOOT_SECTOR, bounce);
-	free (bounce);
+	static const uint8_t zeros[DISK_SECTOR_SIZE];
+	buffer_cache_write (FAT_BOOT_SECTOR, zeros, 0, DISK_SECTOR_SIZE);
+	buffer_cache_write (FAT_BOOT_SECTOR, &fat_fs->bs, 0, sizeof fat_fs->bs);
 
-	// Write FAT directly to the disk
 	uint8_t *buffer = (uint8_t *) fat_fs->fat;
-	off_t bytes_wrote = 0;
-	off_t bytes_left = sizeof (fat_fs->fat);
-	const off_t fat_size_in_bytes = fat_fs->fat_length * sizeof (cluster_t);
+	size_t bytes = fat_fs->fat_length * sizeof (cluster_t);
 	for (unsigned i = 0; i < fat_fs->bs.fat_sectors; i++) {
-		bytes_left = fat_size_in_bytes - bytes_wrote;
-		if (bytes_left >= DISK_SECTOR_SIZE) {
-			disk_write (filesys_disk, fat_fs->bs.fat_start + i,
-			            buffer + bytes_wrote);
-			bytes_wrote += DISK_SECTOR_SIZE;
-		} else {
-			bounce = calloc (1, DISK_SECTOR_SIZE);
-			if (bounce == NULL)
-				PANIC ("FAT close failed");
-			memcpy (bounce, buffer + bytes_wrote, bytes_left);
-			disk_write (filesys_disk, fat_fs->bs.fat_start + i, bounce);
-			bytes_wrote += bytes_left;
-			free (bounce);
-		}
+		size_t count = bytes < DISK_SECTOR_SIZE ? bytes : DISK_SECTOR_SIZE;
+		if (count < DISK_SECTOR_SIZE)
+			buffer_cache_write (fat_fs->bs.fat_start + i, zeros, 0, DISK_SECTOR_SIZE);
+		if (count > 0)
+			buffer_cache_write (fat_fs->bs.fat_start + i, buffer, 0, count);
+		buffer += count;
+		bytes -= count;
 	}
 }
 
@@ -127,12 +95,8 @@ fat_create (void) {
 	// Set up ROOT_DIR_CLST
 	fat_put (ROOT_DIR_CLUSTER, EOChain);
 
-	// Fill up ROOT_DIR_CLUSTER region with 0
-	uint8_t *buf = calloc (1, DISK_SECTOR_SIZE);
-	if (buf == NULL)
-		PANIC ("FAT create failed due to OOM");
-	disk_write (filesys_disk, cluster_to_sector (ROOT_DIR_CLUSTER), buf);
-	free (buf);
+	static const uint8_t zeros[DISK_SECTOR_SIZE];
+	buffer_cache_write (cluster_to_sector (ROOT_DIR_CLUSTER), zeros, 0, DISK_SECTOR_SIZE);
 }
 
 void
