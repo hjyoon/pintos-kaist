@@ -1,102 +1,102 @@
-> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project2/introduction.html) · 수집일: 2026-10-17 · [한국어 목차](../README.md)
+> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project2/introduction.html) · 수집일: 2026-10-17 · 대조·교정: 2026-10-28 · [목차](../README.md)
 
 <a id="project2-user-programs"></a>
 
-# 프로젝트 2: 유저 프로그램
+# Project 2: User Programs
 
-이제 Pintos와 함께 작업하고 인프라와 스레드 패키지에 익숙해지면서 사용자 프로그램을 실행할 수 있는 시스템 부분들에 대한 작업을 시작해야 합니다. 기본 코드는 이미 사용자 프로그램을 로딩하고 실행하는 것을 지원하지만 I/O 또는 상호작용이 불가능합니다. 이 프로젝트에서는 프로그램들이 시스템 호출을 통해 OS와 상호 작용할 수 있도록 할 것입니다. 당신은 이 임무에 `userprog` 디렉토리를 통해 작업할 것이지만 Pintos의 거의 모든 다른 부분과도 상호 작용할 것입니다. 아래와 같이 관련 부분들을 설명하겠습니다.
+Pintos의 기반 구조와 thread 기능에 익숙해졌다면 이제 user program을 실행하는 부분을 다룰 차례입니다. 기본 코드는 user program의 loading과 실행은 지원하지만 I/O나 상호작용은 지원하지 않습니다. 이번 프로젝트에서는 system call로 프로그램이 OS와 상호작용하게 만듭니다. 주로 `userprog`에서 작업하지만 Pintos의 거의 모든 부분과 연결되며, 관련 코드를 아래에서 설명합니다.
 
-**프로젝트 1 제출에 따라 프로젝트 2를 구축해야 합니다.** 프로젝트 1의 코드는 프로젝트 2의 코드에 영향을 미치지 않음에도 불구하고 프로젝트 1의 테스트 케이스를 통과해야 합니다.
+**Project 2는 Project 1 제출물을 기반으로 구현해야 합니다.** Project 1 코드가 Project 2 구현에 직접 영향을 주지 않더라도 누적형 프로젝트이므로 Project 1 테스트를 계속 통과해야 합니다.
 
-또한, 프로젝트2에서 추가적인 도전이 있다는 것을 알려주세요. **이것은 선택적 구현일 뿐입니다.** 또한, 추가적인 도전을 위해, 테스트 케이스를 제외하고는 당신을 위한 스켈레톤 코드가 없습니다. 모든 디자인은 당신에게 달려 있습니다. **추가 요구 사항을 제출하고 테스트하려면 `userprog/Make.vars`을 편집해야 합니다.**.
+Project 2부터는 extra 과제도 있습니다. **선택 사항이며 필수 구현은 아닙니다.** extra에는 test case만 제공하고 skeleton은 제공하지 않으므로 설계는 직접 해야 합니다. **Extra를 테스트하고 제출하려면 `userprog/Make.vars`를 수정해야 합니다.**
 
-마지막으로, `TODO` 없는 코드는 항상 그 코드를 변경할 필요가 없다는 것을 유의하시기 바랍니다. 프로젝트2에서 테스트 코드를 제외한 모든 소스 코드를 자유롭게 수정할 수 있습니다.
+`TODO` 표시가 없는 코드도 수정이 필요할 수 있습니다. Project 2에서는 테스트 코드를 제외한 소스를 자유롭게 수정할 수 있습니다.
 
 <a id="background"></a>
 
 ## 배경
 
-지금까지 Pintos에서 실행한 모든 코드는 운영 체제 커널의 일부였습니다. 이것은 예를 들어, 마지막 임무를 수행한 모든 테스트 코드가 커널의 일부로 실행되었음을 의미하며 시스템의 특권된 부분에 대한 완전한 접근을 제공했습니다. 일단 우리는 운영 체제 위에 사용자 프로그램을 실행하기 시작하면, 이것은 더 이상 사실이 아닙니다. 이 프로젝트는 그 결과를 다루고 있습니다.
+지금까지 Pintos에서 실행한 코드는 모두 kernel의 일부였습니다. 예를 들어 이전 과제의 테스트도 kernel 안에서 실행되어 privileged resource에 전부 접근할 수 있었습니다. user program을 실행하기 시작하면 더 이상 이런 가정이 성립하지 않습니다. 이 프로젝트에서는 그에 따른 문제를 다룹니다.
 
-우리는 한 번에 하나 이상의 프로세스가 실행되도록 허용합니다. 각 프로세스는 하나의 스레드를 가지고 있습니다 (다 스레드 프로세스는 지원되지 않습니다). 사용자 프로그램은 전체 기계를 가지고 있다는 착각으로 작성됩니다. 즉, 여러 프로세스를 동시에 로드하고 실행할 때, 이 환상을 유지하기 위해 메모리, 스케줄링 및 다른 상태를 올바르게 관리해야 합니다.
+여러 process가 함께 실행될 수 있습니다. 각 process는 thread 하나만 가지며 multithreaded process는 지원하지 않습니다. user program은 자신이 컴퓨터 전체를 독점한다고 가정하고 작성됩니다. 여러 process를 실행해도 이 가정이 유지되도록 memory, scheduling, 기타 상태를 올바르게 관리해야 합니다.
 
-이전 프로젝트에서는 테스트 코드를 커널에 직접 컴파일했으므로 특정 커널 함수 인터페이스를 요구해야 했습니다. 이제부터는 유저 프로그램을 실행해 OS를 테스트하므로 훨씬 자유롭게 구현할 수 있습니다. 유저 프로그램 인터페이스가 이 문서의 명세를 만족한다면 커널 코드는 원하는 방식으로 재구성하거나 다시 작성해도 됩니다. 작성한 코드를 `#ifdef VM`로 둘러싼 블록에 넣어서는 안 됩니다. 이 블록은 프로젝트 3에서 가상 메모리 하위 시스템을 활성화하면 포함됩니다. 반대로 `#ifndef VM`로 둘러싼 코드는 프로젝트 3에서 제외됩니다.
+이전 프로젝트에서는 테스트 코드를 kernel에 직접 컴파일했기 때문에 특정 내부 함수 interface를 요구했습니다. 이제부터는 user program으로 운영체제를 테스트하므로 구현의 자유도가 높아집니다. 명시된 user program interface만 지키면 kernel 내부 구조를 바꾸거나 다시 작성해도 됩니다. Project 2에 필요한 코드를 `#ifdef VM`로 둘러싼 구간 안에만 넣어서는 안 됩니다. 이 구간은 Project 3에서 VM을 활성화해야 포함되기 때문입니다. 반대로 `#ifndef VM`로 둘러싼 코드는 VM을 켜면 제외됩니다.
 
-**시작하기 전에 [동기화](../appendix/synchronization.md) 및 [가상 주소](../appendix/virtual_address.md)을 읽으시기 바랍니다.**
+**시작 전에 [Synchronization](../appendix/synchronization.md)과 [Virtual Address](../appendix/virtual_address.md)를 읽는 것을 강하게 권장합니다.**
 
 <a id="source-files"></a>
 
 ### 소스 파일
 
-여러분이 할 프로그래밍에 대한 개요를 얻을 수 있는 가장 쉬운 방법은 여러분이 작업할 모든 부분을 간단하게 검토하는 것입니다. `userprog`에서는 소수의 파일들을 찾을 수 있습니다. 하지만 여기서 대부분의 작업이 이루어질 것입니다.
+수정할 부분을 하나씩 살펴보면 작업의 전체 흐름을 파악하기 쉽습니다. `userprog`의 파일 수는 적지만 대부분의 작업은 이곳에서 이루어집니다.
 
 - `process.c`, `process.h`
 
-  ELF 바이너리를 로드하고 프로세스를 시작합니다.
+  ELF binary를 load하고 process를 시작합니다.
 
 - `syscall.c`, `syscall.h`
 
-  사용자 프로세스가 어떤 커널 기능에 접근하고자 할 때마다 시스템 호출을 호출합니다. 이건 스켈레톤 시스템 호출 관리자입니다. 현재, 그것은 단지 메시지를 인쇄하고 사용자 프로세스를 종료합니다. 이 프로젝트의 2부에서는 시스템 호출에 필요한 다른 모든 작업을 수행하기 위해 코드를 추가합니다.
+  user process가 kernel 기능을 요청할 때 system call을 호출합니다. 이 파일에는 handler의 skeleton이 있으며, 현재는 메시지를 출력한 뒤 process를 종료할 뿐입니다. system call 구현 단계에서 필요한 기능을 추가합니다.
 
 - `syscall-entry.S`
 
-  작은 어셈블리 코드가 시스템 호출 핸들러를 부팅합니다. 이 코드를 이해할 필요는 없습니다.
+  system call handler에 진입하는 짧은 assembly 코드입니다. 자세히 이해할 필요는 없습니다.
 
 - `exception.c`, `exception.h`
 
-  유저 프로세스가 특권 연산이나 금지된 연산을 수행하면 `exception` 또는 `fault`로 커널에 트랩됩니다. 이 파일들은 예외를 처리합니다. 현재는 모든 예외에서 메시지를 출력하고 프로세스를 종료합니다. 프로젝트 2의 구현 방식에 따라 이 파일의 `page_fault()`를 수정해야 할 수 있지만 모든 구현에서 필요한 것은 아닙니다.
+  user process가 privileged operation이나 금지된 작업을 수행하면 `exception` 또는 `fault` 등의 exception으로 kernel에 진입합니다. 이 파일들이 exception을 처리하며, 기본적으로 메시지를 출력한 뒤 process를 종료합니다. 구현 방식에 따라 이 파일의 `page_fault()`를 수정해야 할 수 있습니다.
 
 <!-- -->
 
 - `gdt.c`, `gdt.h`
 
-  x86-64은 세분화된 구조입니다. 글로벌 디스크리퍼 테이블 (GDT) 는 사용되는 세그먼트를 설명하는 테이블입니다. 이 파일들은 GDT를 설정했습니다. 이 파일들은 어떤 프로젝트에도 수정할 필요가 없습니다. GDT의 작동 방식에 관심이 있다면 코드를 읽을 수 있습니다.
+  x86-64는 segmentation을 지원하는 architecture입니다. Global Descriptor Table(GDT)은 사용하는 segment를 기술하는 table이며, 이 파일들이 GDT를 설정합니다. 어느 프로젝트에서도 수정할 필요는 없습니다. 동작 원리가 궁금하면 읽어 보십시오.
 
 - `tss.c`, `tss.h`
 
-  작업 상태 세그먼트 (TSS) 는 x86 아키텍처 작업 전환에 사용됩니다. 그러나 x86-64에서는 작업 전환이 비효율적입니다. 그럼에도 불구하고 TSS는 링 스위치 중 스택 포인터를 찾기 위해 여전히 존재합니다.
+  Task-State Segment(TSS)는 x86에서 hardware task switching에 사용되었습니다. x86-64에서는 그 방식의 task switching을 사용하지 않지만, privilege level인 ring이 바뀔 때 stack pointer를 찾는 용도로 TSS가 여전히 필요합니다.
 
-  즉, 사용자 프로세스가 인터럽트 핸들러에 들어가면 하드웨어는 tss에 문의하여 커널의 스택 포인터를 검색합니다. 이 파일들을 변경할 필요가 없겠죠. TSS의 작동 방식에 관심이 있다면 코드를 읽을 수 있습니다.
+  즉, user process에서 interrupt handler로 진입할 때 hardware는 TSS에서 kernel stack pointer를 찾습니다. 이 파일들도 프로젝트에서 수정할 필요는 없습니다. TSS에 관심이 있다면 읽어 보십시오.
 
 <a id="using-the-file-system"></a>
 
-### 파일 시스템 사용하기
+### File System 사용
 
-이 프로젝트를 위해 파일 시스템 코드와 인터페이스를 연결해야 합니다. 사용자 프로그램은 파일 시스템에서 로드되며, 실행해야 하는 시스템 호출의 상당수는 파일 시스템으로 처리되기 때문입니다. 그러나 이 프로젝트의 초점은 파일 시스템이 아닙니다. 그래서 우리는 `filesys` 디렉토리에 간단한 하지만 완전한 파일 시스템을 제공했습니다. 파일 시스템과 특히 그 많은 한계를 사용하는 방법을 이해하기 위해 `filesys.h` 및 `file.h` 인터페이스를 살펴보고 싶을 것입니다.
+user program을 file system에서 load하고, 구현할 여러 system call도 파일을 다루므로 file system 코드와 연동해야 합니다. 다만 이번 과제의 핵심은 file system이 아니므로 `filesys`에 단순하지만 필요한 기능을 갖춘 구현을 제공합니다. `filesys.h`와 `file.h` interface를 읽어 사용 방법과 제한을 파악하십시오.
 
-**이 프로젝트의 파일 시스템 코드를 수정할 필요가 없습니다**, 그래서 그렇게 하지 않는 것이 좋습니다. 파일 시스템에 대한 작업은 이 프로젝트의 중점을 벗어나게 될 가능성이 있습니다.
+**이번 프로젝트에서 file system 코드를 수정할 필요는 없으며, 수정하지 않는 것을 권장합니다.** 여기에 시간을 쓰면 과제의 핵심에서 벗어나기 쉽습니다.
 
-**파일 시스템 루틴의 올바른 사용은 이제 프로젝트 4의 삶을 훨씬 더 쉽게 만들 것입니다**, 파일 시스템 구현을 개선할 때 그 전까지는 다음의 한계를 용납해야 합니다.
+**지금 file system 함수를 올바르게 사용하면 Project 4에서 구현을 개선할 때 훨씬 수월합니다.** 그전까지는 다음 제약을 받아들여야 합니다.
 
-- 내부 동기화가 없습니다. 동시에 접속하면 서로 방해가 될 것입니다. 동시에 하나의 프로세스가 파일 시스템 코드를 실행하는지 확인하기 위해 동기화를 사용해야 합니다.
-- 파일 크기는 생성 시점에 고정됩니다. 루트 디렉토리는 파일로 표시되므로 생성될 수 있는 파일 수는 제한되어 있습니다.
-- 파일 데이터는 단일 범위로 할당됩니다. 즉, 하나의 파일의 데이터는 디스크에 인접한 섹터 범위를 차지해야 합니다. 따라서 외부 파편화는 시간이 지남에 따라 파일 시스템이 사용됨에 따라 심각한 문제가 될 수 있습니다.
-- 부 디렉터리가 없습니다
-- 파일 이름은 14개의 문자로 제한됩니다.
-- 작동 중 시스템 충돌은 자동으로 수리할 수 없는 방식으로 디스크를 손상시킬 수 있습니다. 어쨌든 파일 시스템 수리 도구는 없습니다.
+- 내부 synchronization이 없습니다. 동시에 접근하면 서로 간섭하므로, 한 번에 하나의 process만 file system 코드에 진입하도록 보호해야 합니다.
+- 파일 크기는 생성 시 고정됩니다. root directory도 파일이므로 생성할 수 있는 파일 수도 제한됩니다.
+- 파일 하나의 데이터는 연속한 disk sectors, 즉 단일 extent에 저장됩니다. 오래 사용하면 external fragmentation이 심해질 수 있습니다.
+- subdirectory를 지원하지 않습니다.
+- 파일 이름은 최대 14자입니다.
+- 작업 도중 시스템이 비정상 종료되면 자동 복구할 수 없는 disk 손상이 생길 수 있습니다. file system 복구 도구도 제공하지 않습니다.
 
-**한 가지 중요한 특징은 다음과 같습니다.**
+**다음의 중요한 기능은 이미 구현되어 있습니다.**
 
-`filesys_remove()`에 대해 UNIX와 유사한 의미론이 구현됩니다. 즉, 파일을 제거할 때 열리면 그 블록이 분리되지 않으며 마지막이 닫을 때까지 열을 수 있는 모든 스레드에서 접근 할 수 있습니다. 자세한 내용은 [열린 파일 을 제거 하는 방법](FAQ.md) 문서를 참조하십시오.
+`filesys_remove()`에는 Unix와 같은 동작이 구현되어 있습니다. 열린 파일을 삭제해도 마지막 opener가 닫기 전까지 block을 해제하지 않으며, 기존에 열어 둔 thread는 계속 접근할 수 있습니다. [열린 파일의 삭제](FAQ.md)를 참조하십시오.
 
 ------------------------------------------------------------------------
 
-모든 테스트 프로그램이 이미 커널 이미지에 존재했던 프로젝트 1과 달리 테스트 프로그램을 (이 사용자 공간에서 실행되는) Pintos 가상 머신에 넣어야합니다. 여러분의 삶을 훨씬 더 쉽게 만들기 위해, 우리의 테스트 스크립트 `make check`) 은 자동으로 처리되므로 대부분의 경우, 당신은 이것을 이해 할 필요가 없습니다. 그러나 이것을 아는 것은 개별 테스트 사례를 실행하는 데 크게 도움이 될 것입니다.
+Project 1과 달리 user space에서 실행하는 테스트 프로그램은 kernel image에 포함되지 않습니다. 직접 Pintos VM 안에 넣어야 합니다. 보통은 `make check` 등의 테스트 스크립트가 자동으로 처리하므로 세부사항을 몰라도 되지만, 개별 테스트를 실행할 때는 알아 두면 유용합니다.
 
-Pintos 가상 머신에 파일을 넣기 위해서는 먼저 파일 시스템 파티션으로 시뮬레이션 디스크를 만들 수 있어야 합니다. `pintos-mkdisk` 프로그램은 이 기능을 제공한다. `userprog/build` 디렉토리에서 `pintos-mkdisk filesys.dsk 2`을 실행하세요. 이 명령은 2 MB의 Pintos 파일 시스템 파티션을 포함하는 `filesys.dsk`라는 시뮬레이션 디스크를 생성합니다. 다음으로, `--fs-disk filesys.dsk`을 `pintos` 다음으로, 그러나 `--` (즉, `pintos --fs-disk filesys.disk -- KERNEL_COMMANDS...`). `--`은 `--fs-disk`가 시뮬레이션 커널을 위한 것이 아니라 Pintos 스크립트를 위한 것이기 때문에 필요합니다. 다음으로, 커널의 명령 줄에 `-f -q`을 입력하여 파일 시스템 파티션을 포맷하십시오: `pintos SCRIPT_COMMANDS -- -f -q`. `-f` 옵션은 파일 시스템을 포맷하게 하고, `-q`은 포맷이 완료되면 Pintos를 종료하게 합니다.
+파일을 VM에 넣으려면 먼저 file system partition이 있는 simulated disk를 만들어야 합니다. `pintos-mkdisk`가 이 기능을 제공합니다. `userprog/build`에서 `pintos-mkdisk filesys.dsk 2`을 실행하면 2 MB Pintos file system partition이 든 `filesys.dsk`가 생성됩니다. disk 지정 옵션 `--fs-disk filesys.dsk`은 `pintos` 뒤, `--` 앞에 둡니다. 전체 형식은 `pintos --fs-disk filesys.disk -- KERNEL_COMMANDS...`입니다. `--fs-disk`는 simulated kernel이 아니라 pintos 스크립트의 옵션이므로 구분자 `--`가 필요합니다. 다음으로 kernel command line에 `-f -q`를 전달해 format합니다. 전체 명령은 `pintos SCRIPT_COMMANDS -- -f -q`입니다. `-f`는 format을, `-q`는 format 후 즉시 종료를 지시합니다.
 
-시뮬레이션 파일 시스템에서 파일을 복사하는 방법이 필요할 겁니다. Pintos `-p` ("투기") 및 `-g` ("받기") 옵션은 이것을 수행합니다. Pintos 파일 시스템에 "파일"을 복사하려면 `pintos -p file -- -q` 명령어를 사용합니다. `newname`라는 이름으로 Pintos 파일 시스템에 복사하려면 원래 파일 이름 뒤에 `:newname`을 추가합니다: `pintos -p file:newname -- -q`. VM에서 파일을 복사하는 명령어는 비슷하지만 `-g`을 `-p`으로 대체하십시오.
+pintos의 `-p`(put)과 `-g`(get) 옵션으로 simulated file system 안팎에 파일을 복사합니다. 'file'을 넣으려면 `pintos -p file -- -q`를 사용합니다. `newname`라는 이름으로 넣으려면 원래 파일 이름 뒤에 `:newname`을 붙여 `pintos -p file:newname -- -q`처럼 실행합니다. VM에서 꺼낼 때도 비슷하지만 `-p` 대신 `-g`를 사용합니다.
 
-이 명령들은 커널의 명령 줄에 특수 명령어 추출 및 추가를 통과하고 특수 시뮬레이션 된 "스크래치" 파티션으로 복사하여 작동합니다. 매우 호기심이 있다면, 핑토스 스크립트와 `filesys/fsutil.c`을 통해 구현 세부사항을 알아볼 수 있습니다.
+이 기능은 kernel command line에 extract·append 등의 특수 명령을 전달하고, 별도의 simulated scratch partition을 통해 파일을 복사하는 방식으로 동작합니다. 자세한 구현은 pintos 스크립트와 `filesys/fsutil.c`를 살펴보십시오.
 
-다음은 파일 시스템 파티션으로 디스크를 만드는 방법, 파일 시스템을 포맷하는 방법, 이 프로젝트의 두 번째 테스트 케이스인 *args-single* 프로그램을 복사하여 새로운 디스크에 실행하고 (argument passing will not work until you implement it.) 그것은 이미 테스트 케이스를 구축하고 현재 디렉토리가 `userprog/build`라고 가정합니다:
+아래는 disk 생성, format, 이 프로젝트의 두 번째 테스트인 *args-single* 복사, 'onearg'를 argument로 전달한 실행까지의 예입니다. argument passing을 구현하기 전에는 argument 전달이 동작하지 않습니다. 테스트 프로그램을 이미 빌드했고 현재 directory가 `userprog/build`라고 가정합니다.
 
 ```
 pintos-mkdisk filesys.dsk 10
 pintos --fs-disk filesys.dsk -p tests/userprog/args-single:args-single -- -q -f run 'args-single onearg'
 ```
 
-파일 시스템 디스크를 나중에 사용하거나 검사하기 위해 보관하고 싶지 않다면 4단계 모두 하나의 명령으로 결합할 수도 있습니다. `--filesys-size=n` 옵션은 Pintos 실행 기간 동안만 n 메가바이트 정도의 일시적인 파일 시스템 파티션을 생성합니다. Pintos 자동 테스트 스위트는 이 문법을 광범위하게 사용합니다.
+disk를 나중에 보관하거나 조사할 필요가 없으면 네 단계를 한 명령으로 합칠 수도 있습니다. `--filesys-size=n`는 pintos 실행 동안만 사용하는 약 n MB 크기의 임시 file system partition을 만듭니다. 자동 테스트에서도 이 형식을 많이 사용합니다.
 
 ```
 pintos --fs-disk=10 -p tests/userprog/args-single:args-single -- -q -f run 'args-single onearg'
@@ -104,31 +104,31 @@ pintos --fs-disk=10 -p tests/userprog/args-single:args-single -- -q -f run 'args
 
 <a id="how-user-programs-work"></a>
 
-### 유저 프로그램의 동작 원리
+### User Program의 동작
 
-Pintos는 정상적인 C 프로그램을 실행할 수 있습니다. 메모리에 잘 어울리고, 당신이 구현하는 시스템 호출만 사용한다면요. 특히, `malloc()`은 이 프로젝트에 필요한 시스템 호출 중 어느 것도 메모리 할당을 허용하지 않기 때문에 구현될 수 없습니다. 또한 Pintos는 부동소수점 동작을 사용하는 프로그램을 실행할 수 없습니다. 왜냐하면 커널은 스레드를 전환할 때 프로세서의 부동소수점 단위를 저장하고 복원하지 않기 때문입니다.
+memory에 들어가고 구현된 system call만 사용하는 일반 C 프로그램을 실행할 수 있습니다. 다만 이번 과제의 system call에는 memory allocation 기능이 없으므로 `malloc()`은 구현할 수 없습니다. context switch 때 floating-point unit의 상태를 저장·복원하지 않으므로 floating-point 연산을 사용하는 프로그램도 지원하지 않습니다.
 
-Pintos는 `userprog/process.c`에서 제공된 로더로 ELF 실행 파일을 로드할 수 있습니다. ELF는 리눅스, 솔라리스 및 다른 많은 운영 체제에서 객체 파일, 공유 라이브러리 및 실행 파일로 사용되는 파일 형식입니다.
+`userprog/process.c`에 제공된 loader는 ELF executable을 load합니다. ELF는 Linux, Solaris 등 여러 OS에서 object file, shared library, executable에 사용하는 형식입니다.
 
-실제로 x86-64 ELF 실행 파일을 내놓는 모든 컴파일러와 링크를 사용하여 Pintos를 위한 프로그램을 만들 수 있습니다. 시뮬레이션 파일 시스템에 테스트 프로그램을 복사할 때까지 Pintos는 유용한 작업을 할 수 없다는 것을 즉시 깨달아야 합니다. 다양한 프로그램을 파일 시스템에 복사할 때까지 흥미로운 일을 할 수 없습니다. 깨끗한 참조 파일 시스템 디스크를 만들고 사용 가능한 상태에서 벗어나 `filesys.dsk`을 폐기할 때마다 복사하고 싶을 수도 있습니다.
+x86-64 ELF executable을 출력하는 compiler와 linker라면 어떤 것을 사용해도 됩니다. 제공된 도구를 사용해도 충분합니다. 테스트 프로그램을 simulated file system에 복사하기 전에는 Pintos로 할 수 있는 일이 거의 없습니다. 여러 프로그램을 넣어 실행해 보십시오. debugging 중 `filesys.dsk`를 사용할 수 없을 정도로 손상시킬 수도 있으므로, 깨끗한 기준 disk image를 만들어 두고 필요할 때 복원하면 편리합니다.
 
 <a id="virtual-memory-layout"></a>
 
-### 가상 메모리 배치
+### Virtual Memory Layout
 
-Pintos의 가상 메모리는 사용자 가상 메모리와 커널 가상 메모리로 두 영역으로 나 ?? 다. 사용자 가상 메모리는 가상 주소 `0`에서 `KERN_BASE`까지 다양하며, 이는 `include/threads/vaddr.h`에서 정의되며 기본적으로 `0x8004000000` 커널 가상 메모리는 가상 주소 공간을 차지합니다.
+Pintos의 virtual memory는 user virtual memory와 kernel virtual memory로 나뉩니다. user 영역은 virtual address `0`부터 `include/threads/vaddr.h`에 정의된 `KERN_BASE` 전까지이며, 경계의 기본값은 `0x8004000000`입니다. 나머지 virtual address space는 kernel 영역입니다.
 
-사용자 가상 메모리는 프로세스별입니다. 커널이 한 프로세스에서 다른 프로세스로 전환할 때, 프로세서의 페이지 디렉토리 기본 레지스터를 변경하여 사용자 가상 주소 공간을 변경합니다 (`pml4_activate()`에서 `thread/mmu.c` 참조).
+user virtual memory는 process마다 독립적입니다. process를 전환할 때 processor의 page directory base register를 바꾸어 user address space도 전환합니다. `thread/mmu.c`의 `pml4_activate()`를 참조하십시오. struct thread에는 process의 page table pointer가 있습니다.
 
-커널 가상 메모리는 전 세계적입니다. 그것은 항상 사용자 프로세스 또는 커널 스레드가 실행되는 것과 상관없이 동일한 방식으로 지도됩니다. Pintos에서, 커널 가상 메모리는 `KERN_BASE`을 시작으로 물리적 메모리에 하나씩 매핑된다. 즉, 가상 주소는 `KERN_BASE`로 물리적 주소를 `0`, 가상 주소는 `KERN_BASE + 0x1234`로 물리적 주소를 `0x1234`, 그리고 기계의 물리적 메모리의 크기까지 접근합니다.
+kernel virtual memory는 시스템 전체에서 공유하며, 실행 중인 user process나 kernel thread가 바뀌어도 같은 mapping이 유지됩니다. Pintos에서는 `KERN_BASE`부터 physical memory와 일대일로 대응합니다. 예를 들어 virtual address `KERN_BASE`는 physical address `0`를, `KERN_BASE + 0x1234`는 `0x1234`를 가리키며, 이 대응은 실제 physical memory 크기까지 이어집니다.
 
-사용자 프로그램은 사용자 가상 메모리에만 접근할 수 있습니다. 커널 가상 메모리에 접근하려는 시도는 페이지 폴트가 발생하여 `page_fault()`에서 `userprog/exception.c`에서 처리되며 프로세스가 종료됩니다. 커널 스레드는 커널 가상 메모리와 사용자 프로세스가 실행되는 경우 실행 프로세스의 사용자 가상 메모리에 접근 할 수 있습니다. 그러나, 커널에서도, 지도되지 않은 사용자 가상 주소에서 메모리에 접근하려는 시도는 페이지 폴트를 유발합니다.
+user program은 자신의 user virtual memory에만 접근할 수 있습니다. kernel virtual memory에 접근하면 page fault가 발생해 `userprog/exception.c`의 `page_fault()`가 처리하며 process가 종료됩니다. kernel thread는 kernel 영역과 현재 실행 중인 user process의 user 영역에 접근할 수 있습니다. 그러나 kernel에서도 mapping이 없는 user virtual address에 접근하면 page fault가 발생합니다.
 
 <a id="typical-memory-layout"></a>
 
-### 일반적인 메모리 배치
+### 일반적인 Memory Layout
 
-개념적으로, 각 프로세스는 사용자가 원하는 방식으로 자신의 가상 메모리를 자유롭게 설정할 수 있습니다. 실제로 사용자 가상 메모리는 다음과 같이 구성됩니다.
+개념적으로 process는 자신의 user virtual memory를 원하는 대로 배치할 수 있습니다. 보통은 다음과 같은 구성을 사용합니다.
 
     USER_STACK +----------------------------------+
                |             user stack           |
@@ -158,25 +158,27 @@ Pintos의 가상 메모리는 사용자 가상 메모리와 커널 가상 메모
                |                                  |
            0   +----------------------------------+
 
-이 프로젝트에서는 사용자 스택의 크기가 고정되어 있지만 프로젝트 3에서는 증가 할 수 있습니다. 전통적으로, 초기화되지 않은 데이터 세그먼트의 크기는 시스템 호출으로 조정될 수 있지만, 이것을 구현할 필요가 없습니다.
+이번 프로젝트의 user stack 크기는 고정이지만 Project 3에서는 확장할 수 있게 됩니다. 전통적으로 uninitialized data segment의 크기는 system call로 조절하지만, 이 기능은 구현하지 않아도 됩니다.
 
-Pintos의 코드 세그먼트는 사용자 가상 주소 0x400000에서 시작되며, 주소 공간의 바닥에서 약 128 MB입니다. 이 값은 ubuntu에서 전형적인 값이었고 깊은 의미가 없습니다.
+Pintos의 code segment는 user virtual address 0x400000에서 시작합니다. 이 값은 Ubuntu에서 흔히 사용하던 값이며 특별한 의미는 없습니다.
 
-링크러는 사용자 프로그램의 레이아웃을 메모리에 설정하고, 각 프로그램 세그먼트의 이름과 위치를 알려주는 "링커 스크립트"에 의해 지시됩니다. LINKER 스크립트에 대한 자세한 내용은 LINKER 매뉴얼의 "Scripts" 장을 통해 확인할 수 있습니다. `info ld`을 통해 접근 할 수 있습니다.
+> **원문 주의:** 원문은 0x400000을 약 128 MB라고 설명하지만, 실제로는 4 MiB입니다. 주소 값 자체는 그대로 보존했습니다.
 
-특정 실행 파일의 레이아웃을 보기 위해, `-p` 옵션을 사용하여 objdump를 실행하십시오.
+linker는 linker script가 지정한 segment 이름과 위치에 따라 user program의 memory layout을 결정합니다. `info ld`로 볼 수 있는 linker 매뉴얼의 Scripts 장에서 자세히 설명합니다.
+
+특정 executable의 배치를 보려면 objdump에 `-p` 옵션을 지정하십시오.
 
 <a id="accessing-user-memory"></a>
 
-### 유저 메모리 접근
+### User Memory 접근
 
-커널은 시스템 콜을 처리하면서 유저 프로그램이 제공한 포인터로 메모리에 접근해야 하는 경우가 많습니다. 유저가 null 포인터, 매핑되지 않은 가상 메모리 주소, 또는 `KERN_BASE` 위쪽의 커널 가상 주소를 전달할 수 있으므로 매우 주의해야 합니다. 이런 잘못된 포인터는 해당 프로세스를 종료하고 자원을 해제하는 방식으로 거부해야 하며, 커널이나 다른 실행 중인 프로세스에 피해를 주어서는 안 됩니다.
+system call을 처리하는 kernel은 user program이 넘긴 pointer로 memory에 접근해야 하는 경우가 많습니다. user는 null pointer, mapping이 없는 virtual memory의 pointer, 또는 `KERN_BASE` 이상의 kernel 영역을 가리키는 pointer를 전달할 수 있으므로 주의해야 합니다. invalid pointer를 발견하면 해당 process를 종료하고 자원을 해제하되, kernel이나 다른 process에 피해를 주어서는 안 됩니다.
 
-적어도 두 가지 합리적인 방법이 있습니다. 첫 번째 방법은 사용자가 제공한 포인터의 유효성을 확인하고, 다시 참조하지 않는 것입니다. 이 경로를 선택하면 `thread/mmu.c` 및 `include/threads/vaddr.h`의 함수를 살펴보고 싶을 것입니다. 이것은 사용자 메모리 접근를 처리하는 가장 간단한 방법입니다.
+안전하게 처리하는 대표적인 방법은 두 가지입니다. 첫 번째는 pointer의 유효성을 먼저 확인한 뒤 dereference하는 것입니다. `thread/mmu.c`와 `include/threads/vaddr.h`의 함수를 살펴보십시오. user memory 접근을 처리하는 가장 단순한 방식입니다.
 
-두 번째 방법은 사용자 포인터가 `KERN_BASE` 아래를 가리킨다는 것을 확인하는 것뿐이며, 그 다음 참조를 삭제하는 것입니다. 유효하지 않은 사용자 포인터는 `page_fault()`의 코드를 `userprog/exception.c`에서 수정하여 처리할 수 있는 "페이지 폴트"를 유발합니다. 이 기술은 일반적으로 프로세서의 MMU를 활용하기 때문에 더 빠르기 때문에 실제 커널 (리눅스 포함) 에서 사용되는 경향이 있습니다.
+두 번째는 pointer가 `KERN_BASE` 아래에 있는지만 확인한 뒤 dereference하는 것입니다. invalid pointer라면 page fault가 발생하므로 `userprog/exception.c`의 `page_fault()`를 수정해 처리합니다. processor의 MMU를 활용하므로 보통 더 빠르며 Linux 등 실제 kernel에서도 사용하는 접근입니다.
 
-두 경우 모두, 자원을 "유출"하지 않도록 해야 합니다. 예를 들어, 시스템 호출이 `malloc()`로 잠금 또는 배정된 메모리를 얻었다고 가정해보자. 나중에 유효하지 않은 사용자 포인터를 발견하면 여전히 잠금을 풀어주거나 메모리 페이지를 풀어주어야 합니다. 사용자 포인터를 삭제하기 전에 확인하는 것을 선택하면, 이것은 간단해야 합니다. 유효하지 않은 포인터가 페이지 폴트를 유발하면 처리하기가 더 어렵습니다. 메모리 접근에서 오류 코드를 반환하는 방법은 없기 때문입니다. 따라서, 후자의 기술을 시도하고자 하는 사람들을 위해, 우리는 조금 유용한 코드를 제공 할 것입니다.
+어느 방법이든 resource leak을 막아야 합니다. system call이 이미 lock을 획득했거나 `malloc()`으로 memory를 할당한 뒤 invalid pointer를 발견했다면 lock을 해제하거나 page를 반환해야 합니다. 사전 검증 방식에서는 비교적 간단하지만, page fault를 이용하면 memory access 자체에서 오류 코드를 반환할 수 없으므로 더 어렵습니다. 후자의 방식을 시도하는 경우를 위해 다음 보조 코드를 제공합니다.
 
 ```
 /* Reads a byte at user virtual address UADDR.
@@ -209,4 +211,4 @@ put_user (uint8_t *udst, uint8_t byte) {
 }
 ```
 
-이러한 각각의 함수는 사용자 주소가 이미 `KERN_BASE` 이하로 확인되었다고 가정한다. 그들은 또한 당신이 `page_fault()`을 수정했다고 가정합니다. 그래서 커널의 페이지 폴트는 rax를 -1로 설정하고 이전 값을 `%rip`로 복사합니다.
+각 함수는 user address가 `KERN_BASE` 아래임을 이미 확인했다고 가정합니다. 또한 kernel에서 page fault가 발생하면 rax를 -1로 바꾸고, 바꾸기 전 rax 값을 `%rip`에 복사하도록 `page_fault()`를 수정했다고 가정합니다.

@@ -1,12 +1,12 @@
-> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project4/introduction.html) · 수집일: 2026-10-17 · [한국어 목차](../README.md)
+> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project4/introduction.html) · 수집일: 2026-10-17 · 대조·교정: 2026-10-28 · [목차](../README.md)
 
 <a id="project-4-file-systems"></a>
 
-# 프로젝트 4: 파일 시스템
+# Project 4: File Systems
 
-이전 두 가지 임무에서, 당신은 파일 시스템을 어떻게 구현했는지에 대해 실제로 걱정하지 않고 광범위하게 사용했습니다. 이 마지막 임무를 위해, 당신은 파일 시스템의 구현을 개선할 것입니다. 당신은 주로 `filesys` 디렉토리에서 일하게 될 것입니다.
+이전 두 과제에서는 내부 구현을 깊이 다루지 않은 채 file system을 많이 사용했습니다. 마지막 과제에서는 file system 구현 자체를 개선합니다. 주로 `filesys` directory에서 작업합니다.
 
-프로젝트 2 또는 프로젝트 3 위에 프로젝트 4을 만들 수 있습니다. 두 경우 모두, 프로젝트 2에 필요한 모든 기능은 여러분의 파일 제출에서 작동해야 합니다. 프로젝트 3에 기반을 둔다면 프로젝트 3의 모든 기능도 작동해야 하며, VM 기능을 활성화하기 위해 `filesys/Make.vars`을 편집해야 합니다. 당신이 VM를 비활성화하면 10%의 신용을 줄일 것입니다. 페이지 캐시 (엑스트라 크레딧) 에 VM 기능이 필요하다는 점에 유의하십시오.
+Project 4는 Project 2 또는 Project 3 위에 구현할 수 있습니다. 어느 쪽이든 Project 2의 모든 필수 기능이 동작해야 합니다. Project 3를 기반으로 삼는다면 Project 3의 모든 기능도 동작해야 하며, `filesys/Make.vars`를 수정해 VM 기능을 활성화해야 합니다. **VM을 비활성화하면 10%를 감점합니다.** 추가 점수 항목인 page cache에도 VM 기능이 필요합니다.
 
 <a id="background"></a>
 
@@ -16,52 +16,52 @@
 
 ### 새 코드
 
-여기 여러분께 새로운 파일들이 있습니다. 이 항목들은 `filesys` 디렉토리에 포함됩니다.
+다음은 처음 접할 수 있는 파일들입니다. 별도 표시가 없으면 `filesys` directory에 있습니다.
 
 - `filesys/fsutil.c`
 
-  > 커널 명령줄에서 접근 할 수있는 파일 시스템에 대한 간단한 유틸리티
+  > kernel command line에서 사용할 수 있는 간단한 file system 유틸리티입니다.
 
 - `include/filesys/filesys.h`, `filesys/filesys.c`
 
-  > 파일 시스템에 최고 수준의 인터페이스. 본 문서의 소개는 [파일 시스템 을 사용](../project2/introduction.md) 참조.
+  > file system의 최상위 interface입니다. 소개는 [File system 사용](../project2/introduction.md)을 참조하십시오.
 
 - `include/filesys/directory.h`, `filesys/directory.c`
 
-  > 파일 이름을 아이노드로 변환합니다. 디렉토리 데이터 구조는 파일로 저장됩니다.
+  > 파일 이름을 inode로 변환합니다. directory 자료구조도 파일로 저장됩니다.
 
 - `include/filesys/inode.h`, `filesys/inode.c`
 
-  > 디스크에 있는 파일 데이터의 레이아웃을 나타내는 데이터 구조를 관리합니다.
+  > disk에 저장되는 파일 데이터의 배치를 나타내는 자료구조를 관리합니다.
 
 - `include/filesys/fat.h`, `filesys/fat.c`
 
-  > FAT 파일 시스템을 관리하십시오.
+  > FAT file system을 관리합니다.
 
 - `include/filesys/file.h`, `filesys/file.c`
 
-  > 파일 읽기 및 쓰기를 디스크 섹터로 번역합니다
+  > 파일 읽기·쓰기를 disk sector 읽기·쓰기로 변환합니다.
 
 - `include/filesys/page_cache.h`, `filesys/page_cache.c`
 
-  > vm 기능을 사용하는 페이지 캐시 구현. 우리는 이 템플릿을 강력히 추천합니다. 하지만 당신은 자신의 코드를 쓸 수 있습니다. vm 플래그를 끄면 이 템플릿을 사용할 수 없다는 점에 유의하십시오.
+  > VM 기능을 활용한 page cache 구현용 template입니다. 이 template의 사용을 강하게 권장하지만, 직접 코드를 작성해도 됩니다. VM flag를 끄면 이 template을 사용할 수 없습니다.
 
 - `include/lib/kernel/bitmap.h`, `lib/kernel/bitmap.c`
 
-  > 비트맵 데이터 구조와 함께 디스크 파일에 비트맵을 읽고 작성하는 루틴
+  > bitmap 자료구조와 bitmap을 disk file에서 읽거나 파일에 쓰는 함수를 제공합니다.
 
-우리의 파일 시스템은 유닉스 같은 인터페이스를 가지고 있으므로 `creat, open, close, read, write, lseek` 및 `unlink`의 유닉스 맨 페이지를 읽고 싶을 수도 있습니다. 우리 파일 시스템은 이것과 비슷하지만 동일하지는 않은 호출을 가지고 있습니다. 파일 시스템은 이 호출을 디스크 작업으로 변환합니다.
+file system은 Unix와 비슷한 interface를 제공하므로, `creat, open, close, read, write, lseek`와 `unlink`의 Unix man page를 참고해도 좋습니다. Pintos의 system call은 이들과 비슷하지만 완전히 같지는 않습니다. file system은 이런 호출을 disk 작업으로 변환합니다.
 
-모든 기본 기능은 위의 코드에 있습니다. 그래서 파일 시스템은 처음부터 사용할 수 있습니다. 이전 두 프로젝트에서 보았듯이. 하지만 심각한 한계를 가지고 있습니다.
+앞선 두 프로젝트에서 보았듯이 기본 기능은 이미 구현되어 있어 처음부터 file system을 사용할 수 있습니다. 다만 심각한 제약이 있으며, 이번 과제에서 이를 없애야 합니다.
 
-대부분의 작업은 `filesys`에서 진행될 것이지만, 이전 모든 부분과의 상호작용을 준비해야 합니다.
+대부분의 작업은 `filesys`에서 진행하지만, 이전 프로젝트의 코드와 상호작용할 수 있다는 점도 고려하십시오.
 
 <a id="testing-file-system-persistence"></a>
 
-#### 파일 시스템 영속성 테스트
+#### File System Persistence 테스트
 
-지금까지, 각각의 테스트는 Pintos를 한 번만 호출했습니다. 그러나 파일 시스템의 중요한 목적은 데이터들이 하나의 부트에서 다른 데이터로 접근할 수 있도록 하는 것입니다. 따라서 파일 시스템 프로젝트의 일부인 테스트는 Pintos를 두 번째 호출합니다. 두 번째 실행은 파일 시스템의 모든 파일과 디렉토리를 하나의 파일로 결합하고, Pintos 파일 시스템에서 파일을 호스트 (Unix) 파일 시스템에 복사합니다.
+지금까지 각 테스트는 Pintos를 한 번만 실행했습니다. 그러나 file system의 중요한 목적은 재부팅 후에도 데이터를 사용할 수 있게 하는 것입니다. 따라서 file system 테스트는 Pintos를 한 번 더 실행합니다. 두 번째 실행에서는 file system의 모든 파일과 directory를 하나의 파일로 묶은 뒤 host Unix file system으로 복사합니다.
 
-등급 스크립트는 두 번째 실행에서 복사된 파일의 내용에 따라 파일 시스템의 정확성을 확인합니다. 이것은 파일 시스템이 복사된 파일을 생성하는 Pintos 사용자 프로그램인 `tar`을 지원하기에 충분히 잘 구현될 때까지 프로젝트가 확장된 파일 시스템 테스트를 통과하지 않을 것이라는 것을 의미합니다. `tar` 프로그램은 상당히 까다롭습니다 (확장 가능한 파일과 하위 디렉터리 지원 모두 필요합니다), 그래서 이것은 약간의 작업이 필요할 것입니다. 그 때까지, 추출된 파일 시스템에 대한 `make check`의 오류를 무시할 수 있습니다.
+채점 스크립트는 두 번째 실행에서 추출한 파일의 내용을 검사해 file system이 올바른지 판단합니다. 따라서 추출용 user program인 `tar`를 지원할 정도로 구현하기 전에는 extended file system 테스트를 통과할 수 없습니다. `tar`는 file growth와 subdirectory를 모두 요구하므로 지원하는 데 상당한 작업이 필요합니다. 그전까지는 `make check`가 출력하는 추출 file system 관련 오류를 무시해도 됩니다.
 
-참고로, 당신이 추측했을 때 파일 시스템 내용을 복사하는 데 사용되는 파일 형식은 표준 UNIX "tar" 형식입니다. 유닉스 타르 프로그램을 사용하여 그들을 검사할 수 있습니다. 테스트 t에 대한 타르 파일은 `t.tar`라는 이름입니다.
+추출 파일은 표준 Unix tar 형식입니다. Unix의 tar 프로그램으로 내용을 살펴볼 수 있습니다. 테스트 t의 tar 파일 이름은 `t.tar`입니다.

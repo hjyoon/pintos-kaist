@@ -1,38 +1,44 @@
-> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project3/anon.html) · 수집일: 2026-10-17 · [한국어 목차](../README.md)
+> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project3/anon.html) · 수집일: 2026-10-17 · 대조·교정: 2026-10-28 · [목차](../README.md)
 
 <a id="anonymous-page"></a>
 
-# 익명 페이지
+# Anonymous Page
 
-이 프로젝트의 이 부분에서는 *익명 페이지*라는 디스크 기반이 아닌 이미지를 구현합니다.
+이번 단계에서는 disk의 원본 파일에 기반하지 않는 *anonymous page*를 구현합니다.
 
-익명 매핑은 백업 파일이나 장치가 없습니다. 이 파일은 익명성으로 지정된 파일 소스를 가지고 있지 않기 때문에 (파일 백업 페이지와 달리) 익명 페이지는 실행 가능한 페이지로 사용되며, 예를 들어, 스택과 힙을 위해 사용됩니다.
+anonymous mapping에는 backing file이나 device가 없습니다. file-backed page와 달리 이름을 가진 원본 파일이 없어서 anonymous라고 부릅니다. 프로그램 실행 중 stack이나 heap 등에 사용합니다.
 
-`include/vm/anon.h`에 있는 `anon_page`이라는 익명 페이지를 설명하는 구조가 있습니다. 현재 빈 상태이지만 회원들을 추가하여 익명 페이지의 필요한 정보 또는 상태를 저장할 수 있습니다. 또한, `include/vm/page.h`의 `struct page` 문서를 참조하십시오. 참고: 익명 페이지의 페이지 구조에 `struct anon_page anon`가 포함되어 있습니다.
+anonymous page를 설명하는 구조체는 `include/vm/anon.h`의 `anon_page`입니다. 현재는 비어 있지만 필요한 정보와 상태를 저장할 member를 추가할 수 있습니다. `include/vm/page.h`의 `struct page`에는 page 공통 정보가 있습니다. anonymous page의 page 구조체에는 `struct anon_page anon`가 포함됩니다.
+
+> **원문 주의:** page 공통 구조체의 파일 경로가 잘못 적혀 있습니다. 이 저장소에서는 include/vm/page.h가 아니라 include/vm/vm.h에 struct page가 정의되어 있습니다.
 
 <a id="page-initialization-with-lazy-loading"></a>
 
-## 지연 로딩을 이용한 페이지 초기화
+## Lazy Loading을 통한 Page 초기화
 
-게으른 로딩 (lazy loading) 은 메모리 로딩이 필요한 시점까지 연기되는 설계이다. 페이지가 할당되어 있습니다. 즉, 그에 대응하는 페이지 구조가 있지만, 전용 물리적 프레임이 없습니다. 그리고 페이지의 실제 내용은 아직 로드되지 않았습니다. 내용들은 실제로 필요한 곳에만 로드됩니다. 이것은 페이지 폴트로 표시됩니다.
+lazy loading은 실제로 필요할 때까지 데이터 적재를 미루는 설계입니다. page를 할당했다는 것은 해당 page 구조체가 있다는 뜻이며, 아직 physical frame이나 실제 내용은 없을 수 있습니다. 프로그램이 접근해 page fault가 발생하면 그때 내용을 읽어 옵니다.
 
-우리는 세 개의 페이지 유형을 가지고 있기 때문에 각 페이지에 대한 초기화 루틴은 다릅니다. 아래 섹션에서 다시 설명되지만, 여기 우리는 페이지 초기화 흐름의 높은 수준의 시각을 제공합니다. 첫째, 커널이 새로운 페이지 요청을 받을 때 `vm_alloc_page_with_initializer`이 호출됩니다. 초기화는 페이지 구조를 배정하고 페이지 유형에 따라 적절한 초기화를 설정하여 새로운 페이지를 초기화하고 제어기를 사용자 프로그램에 반환합니다. 사용자 프로그램이 실행할 때, 어느 시점에서 페이지 폴트가 발생합니다. 왜냐하면 프로그램이 소유한다고 믿는 페이지에 접근하려고 시도하고 있지만 페이지에는 아직 내용이 없습니다. 결함을 처리하는 과정에서 `uninit_initialize`이 호출되고 이전에 설정한 초기화를 호출합니다. 초기화는 익명 페이지의 `anon_initializer`이고 파일 기반 페이지의 `file_backed_initializer`입니다.
+page type이 세 가지이므로 초기화 과정도 type마다 다릅니다. 전체 흐름을 먼저 살펴보면, 새 page 요청이 들어올 때 `vm_alloc_page_with_initializer`가 호출됩니다. 이 함수는 page 구조체를 할당하고 type에 맞는 initializer를 지정한 뒤 user program으로 돌아갑니다. 이후 프로그램이 아직 내용이 없는 page에 접근하면 page fault가 발생합니다. 처리 과정에서 `uninit_initialize`가 앞서 지정한 initializer를 호출합니다. anonymous page에는 `anon_initializer`, file-backed page에는 `file_backed_initializer`를 사용합니다.
 
-페이지에는 초기화-\>(page_fault-\>lazy-load-\>swap-in\>swap-out-\>...)-\>destroy의 라이프 사이클이 있을 수 있습니다. 라이프 사이클의 각 전환에 따라 필요한 절차는 페이지 유형 (또는 `VM_TYPE`) 에 따라 다릅니다. 이전 문항은 초기화의 예였습니다. 이 프로젝트에서는 각 페이지 타입에 대한 이러한 전환 프로세스를 구현할 것입니다.
+page의 생명주기는 초기화 → (page fault → lazy loading → swap in → swap out → …) → destroy로 볼 수 있습니다. 각 단계의 작업은 page type, 즉 `VM_TYPE`에 따라 달라집니다. 앞의 설명은 초기화 단계의 예이며, 이번 프로젝트에서는 type별 전환 과정을 구현합니다.
 
 <a id="lazy-loading-for-executable"></a>
 
-## 실행 파일 지연 로딩
+## Executable의 Lazy Loading
 
-게으른 로딩에서 프로세스가 실행을 시작하면 즉시 필요한 메모리 부분만 메인 메모리에 로드됩니다. 이것은 모든 바이너리 이미지를 한꺼번에 메모리에 로드하는 열렬한 로딩과 비교하면 오버하스트를 줄일 수 있습니다.
+lazy loading에서는 process를 시작할 때 당장 필요한 부분만 main memory에 적재합니다. binary image 전체를 한 번에 적재하는 eager loading보다 시작 시 부담을 줄일 수 있습니다.
 
-게으른 로딩을 지원하기 위해, 우리는 `VM_UNINIT`라는 페이지 타입을 `include/vm/vm.h`에 도입합니다. 모든 페이지는 처음에는 `VM_UNINIT` 페이지로 생성됩니다. 또한 초기화되지 않은 페이지의 페이지 구조를 제공합니다. `struct uninit_page`에서 `include/vm/uninit.h`. 초기화되지 않은 페이지를 생성, 초기화 및 파괴하는 함수은 `include/vm/uninit.c`에서 찾을 수 있습니다. 나중에 이 함수를 완료해야 합니다.
+이를 위해 `include/vm/vm.h`에 `VM_UNINIT` type을 도입합니다. 모든 page는 처음에 `VM_UNINIT` 상태로 생성됩니다. uninitialized page용 구조체는 `include/vm/uninit.h`의 `struct uninit_page`이며, 생성·초기화·destroy 함수는 `include/vm/uninit.c`에 있습니다. 뒤에서 이 함수들의 미완성 부분을 구현합니다.
 
-페이지 폴트에서, 페이지 폴트 처리 장치 (`page_fault`에서 `userprog/exception.c`) 는 `vm/vm.c`에서 `vm_try_handle_fault`로 컨트롤을 전송하여, 먼저 유효한 페이지 폴트가 있는지 확인합니다. *유효성*을 의미하는 것은 무효로 접근하는 오류입니다. *거짓* 오류가 발생하면 페이지에 일부 컨텐츠를 로드하고 컨트롤을 사용자 프로그램에 반환합니다.
+> **원문 주의:** 위 include/vm/uninit.c는 원문의 경로 오타입니다. 구현 파일의 실제 경로는 vm/uninit.c입니다.
 
-가짜 페이지 폴트는 세 가지로 나눌 수 있습니다. 게으른 로딩, 교환 된 페이지, 그리고 쓰기 보호 된 페이지 ([필기 복사 (엑스트라)](cow.md)) 를 참조하십시오. 이제 첫 번째 케이스를 생각해 보세요. 게으른 페이지입니다. 게으른 로딩에 대한 페이지 폴트가 있다면, 커널은 `vm_alloc_page_with_initializer`에서 이전에 설정한 초기화 중 하나를 호출하여 세그먼트를 게으른 로딩합니다. `userprog/process.c`에 `lazy_load_segment`을 구현해야 합니다.
+page fault가 발생하면 `userprog/exception.c`의 handler `page_fault`가 `vm/vm.c`의 `vm_try_handle_fault`로 제어를 넘깁니다. 먼저 잘못된 memory 접근인지, lazy loading처럼 VM이 복구할 수 있는 fault인지 판별해야 합니다. 복구 가능한 fault라면 필요한 내용을 준비한 뒤 user program으로 돌아갑니다.
 
-**`vm_alloc_page_with_initializer()`를 구현합니다.** 통과된 vm_type에 따라 적절한 초기화를 가져와서 `uninit_new`을 호출해야 합니다.
+> **원문 주의:** 이 문단은 “valid”와 “bogus”의 의미를 뒤바꾸어 설명하고 있습니다. 번역에서는 잘못된 접근과 복구 가능한 page fault를 구분해 옮겼습니다. 모든 page fault를 invalid access로 처리한다는 뜻이 아닙니다.
+
+VM이 복구할 수 있는 대표적인 경우는 lazy-loaded page, swapped-out page, write-protected page입니다. 마지막 경우는 [Copy-on-Write — Extra](cow.md)를 참조하십시오. 지금은 lazy loading만 고려합니다. kernel은 앞서 `vm_alloc_page_with_initializer`에 설정한 initializer를 호출해 segment를 load합니다. `userprog/process.c`의 `lazy_load_segment`를 구현해야 합니다.
+
+**`vm_alloc_page_with_initializer()`를 구현하십시오.** 전달받은 vm_type에 맞는 initializer를 선택해 `uninit_new`에 넘겨야 합니다.
 
 ------------------------------------------------------------------------
 
@@ -41,9 +47,9 @@ bool vm_alloc_page_with_initializer (enum vm_type type, void *va,
         bool writable, vm_initializer *init, void *aux);
 ```
 
-> 주어진 타입으로 초기화되지 않은 페이지를 만듭니다. uninit 페이지의 swap_in 핸들러가 타입에 맞게 자동으로 초기화하고 주어진 AUX로 INIT를 호출합니다. page 구조체를 만들었다면 프로세스의 보조 페이지 테이블에 삽입하세요. `vm.h`에 정의된 `VM_TYPE` 매크로를 사용하면 편리할 수 있습니다.
+> 주어진 type의 uninitialized page를 만듭니다. uninit page의 swap_in handler는 type에 맞게 page를 초기화하고, 지정한 AUX로 INIT을 호출합니다. page 구조체를 만든 뒤 process의 supplemental page table에 삽입하십시오. `vm.h`에 정의된 `VM_TYPE` macro를 활용할 수 있습니다.
 
-페이지 폴트 핸들러는 호출 체인을 따르고, 마침내 swap_in 호출을 할 때 `uninit_intialize`에 도달합니다. 우리는 그것을 완전히 실행합니다. 비록, 당신은 당신의 디자인에 따라 `uninit_initialize`를 수정해야 할 수도 있습니다.
+page fault handler의 호출 경로에서 swap_in을 호출하면 최종적으로 `uninit_intialize`에 도달합니다. 이 함수는 완성된 구현이 제공되지만, 설계에 따라 `uninit_initialize`를 수정해야 할 수 있습니다.
 
 ------------------------------------------------------------------------
 
@@ -51,7 +57,7 @@ bool vm_alloc_page_with_initializer (enum vm_type type, void *va,
 static bool uninit_initialize (struct page *page, void *kva);
 ```
 
-> 첫 번째 오류에서 페이지를 초기화합니다. 템플릿 코드는 먼저 `vm_initializer` 및 `aux`을 가져와 함수 포인터를 통해 해당 페이지_이니셔라이저를 호출합니다. 디자인에 따라 함수를 수정해야 할 수도 있습니다.
+> 최초 fault에서 page를 초기화합니다. template은 먼저 `vm_initializer`와 `aux`를 가져오고 function pointer를 통해 해당 page_initializer를 호출합니다. 설계에 맞게 수정해도 됩니다.
 
 필요에 따라 `vm/anon.c`의 `vm_anon_init`와 `anon_initializer`를 수정할 수 있습니다.
 
@@ -61,7 +67,7 @@ static bool uninit_initialize (struct page *page, void *kva);
 void vm_anon_init (void);
 ```
 
-> 익명 페이지 하위 시스템에서 초기화하십시오. 이 함수에서는 익명 페이지와 관련된 모든 것을 설정할 수 있습니다.
+> anonymous page subsystem을 초기화합니다. 관련 초기 설정을 이 함수에서 수행하십시오.
 
 ------------------------------------------------------------------------
 
@@ -69,11 +75,11 @@ void vm_anon_init (void);
 bool anon_initializer (struct page *page,enum vm_type type, void *kva);
 ```
 
-> 함수는 먼저 `page->operations`에서 익명 페이지의 핸들러를 설정합니다. 현재 빈 구조인 `anon_page`에 몇 가지 정보를 업데이트해야 할 수도 있습니다. 이 함수는 익명 페이지 (즉, `VM_ANON`).
+> 먼저 `page->operations`에 anonymous page용 handler들을 설정합니다. 현재 비어 있는 `anon_page`에 필요한 정보를 추가할 수 있습니다. 이 함수는 `VM_ANON`, 즉 anonymous page의 initializer로 사용됩니다.
 
-**`load_segment` 및 `lazy_load_segment`를 `userprog/process.c`에 구현한다.** 실행 파일에서 세그먼트 로딩을 구현합니다. 이 모든 페이지는 느리게 로드되어야 합니다. 즉, 커널이 페이지 폴트를 감지할 때만.
+**`userprog/process.c`의 `load_segment`와 `lazy_load_segment`를 구현하십시오.** executable의 segment를 load하되, 해당 page의 fault가 발생할 때만 실제 내용을 읽는 lazy loading이어야 합니다.
 
-프로그램 로더의 핵심인 `userprog/process.c`의 `load_segment` 안 반복문을 수정해야 합니다. 각 반복에서 `vm_alloc_page_with_initializer`를 호출해 초기화 대기 중인 페이지 객체를 만듭니다. 페이지 폴트가 발생한 시점에 실제로 파일에서 세그먼트를 적재합니다.
+수정할 핵심은 `userprog/process.c`에 있는 `load_segment`의 loop입니다. 반복할 때마다 `vm_alloc_page_with_initializer`로 아직 적재되지 않은 page 객체를 만들고, 실제 file loading은 page fault 시 수행합니다.
 
 ------------------------------------------------------------------------
 
@@ -82,7 +88,7 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
         uint32_t read_bytes, uint32_t zero_bytes, bool writable);
 ```
 
-> 현재 코드는 파일에서 읽을 바이트의 수와 메인 루프 내에서 0으로 채울 바이트의 수를 계산합니다. 그리고, `vm_alloc_page_with_initializer`을 호출하여 유동 객체를 생성합니다. `aux` 로 보조 값을 설정해야 합니다. `vm_alloc_page_with_initializer` 로 제공해야 합니다. 바이너리 로딩에 필요한 정보를 포함하는 구조를 만들고 싶을 수도 있습니다.
+> 현재 loop는 파일에서 읽을 byte 수와 0으로 채울 byte 수를 계산한 뒤 `vm_alloc_page_with_initializer`로 pending page를 만듭니다. `vm_alloc_page_with_initializer`에 전달할 `aux` argument에 필요한 정보를 준비하십시오. binary loading에 필요한 정보를 모은 구조체를 만들면 편리합니다.
 
 ------------------------------------------------------------------------
 
@@ -90,21 +96,21 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
 static bool lazy_load_segment (struct page *page, void *aux);
 ```
 
-> 당신은 `lazy_load_segment`이 `load_segment`에서 `vm_alloc_page_with_initializer`의 네 번째 인자으로 제공되는 것을 알아챘을 수 있습니다. 이 함수는 실행 가능한 페이지의 초기화 함수이며 페이지 폴트의 경우 호출됩니다. 페이지 구조와 `aux`를 논증으로 수신합니다. `aux`은 `load_segment`에서 설정한 정보입니다. 이 정보를 사용하여, 당신은 파일을 찾아서 세그먼트를 읽어야 합니다. 그리고 결국 세그먼트를 메모리로 읽어야 합니다.
+> `load_segment`의 `vm_alloc_page_with_initializer` 호출에서 네 번째 argument로 `lazy_load_segment`를 전달합니다. 이 함수는 executable page의 initializer로, page fault 시 page 구조체와 `aux`를 받습니다. `aux`는 앞서 `load_segment`에서 준비한 정보입니다. 이를 이용해 원본 파일과 위치를 찾아 해당 segment의 내용을 memory로 읽어야 합니다.
 
-**`userprog/process.c`에 있는 `setup_stack`을 새로운 메모리 관리 시스템에 스택 할당을 맞게 조정해야 합니다.** 첫 번째 스택 페이지는 느슨하게 할당할 필요가 없습니다. 로드 시점에 명령 줄 논증으로 할당하고 초기화 할 수 있으며, 오류가 발생할 때까지 기다릴 필요가 없습니다. 스택을 식별하는 방법을 제공해야 할 수도 있습니다. `vm/vm.h`의 `vm_type` (예를 들어 `VM_MARKER_0`) 을 표시하기 위해
+**`userprog/process.c`의 `setup_stack`도 새 memory management 구조에 맞게 수정하십시오.** 첫 stack page는 lazy loading일 필요가 없습니다. fault를 기다리지 않고 load 시점에 할당해 command-line argument로 초기화해도 됩니다. stack임을 구분할 방법이 필요할 수 있으며, `vm/vm.h`의 `vm_type`에 있는 `VM_MARKER_0` 같은 보조 marker를 사용할 수 있습니다.
 
-마지막으로, `vm_try_handle_fault` 함수를 수정하여 결함 주소와 일치하는 페이지 구조를 해결하여 `spt_find_page`을 통해 보조 페이지 테이블을 참조하십시오.
+마지막으로 `vm_try_handle_fault`가 `spt_find_page`로 supplemental page table을 조회하여 fault address에 대응하는 page 구조체를 찾도록 수정하십시오.
 
-모든 요구사항을 이행한 후, 포크를 제외한 프로젝트 2의 모든 테스트는 통과되어야 합니다.
+여기까지 구현하면 fork를 제외한 Project 2 테스트가 통과해야 합니다.
 
 <a id="supplemental-page-table---revisit"></a>
 
-## 보조 페이지 테이블 다시 살펴보기
+## Supplemental Page Table 다시 살펴보기
 
-이제, 우리는 복사 및 청소 작업을 지원하기 위해 보조 페이지 테이블 인터페이스를 다시 방문합니다. 이러한 작업은 프로세스를 생성하거나 파괴할 때 필요합니다. 세부 사항은 아래에서 설명합니다. 이 시점에서 보조 페이지 테이블을 재검토하는 이유는 위에서 구현한 초기화 함수 중 일부를 사용하기를 원할 수 있기 때문입니다.
+process 생성, 특히 child 생성과 process 종료에 필요한 복사·정리 작업을 supplemental page table interface에 추가합니다. 지금 다시 다루는 이유는 앞에서 구현한 초기화 함수들을 활용할 수 있기 때문입니다.
 
-**`supplemental_page_table_copy` 및 `supplemental_page_table_kill`을 `vm/vm.c`에 적용한다.**
+**`vm/vm.c`의 `supplemental_page_table_copy`와 `supplemental_page_table_kill`를 구현하십시오.**
 
 ------------------------------------------------------------------------
 
@@ -113,7 +119,7 @@ bool supplemental_page_table_copy (struct supplemental_page_table *dst,
     struct supplemental_page_table *src);
 ```
 
-> src에서 dst로 추가 페이지 테이블를 복사합니다. 이것은 아이가 부모의 실행 맥락을 물려받아야 할 때 사용됩니다 (즉 `fork()`). src의 보조 페이지 테이블의 각 페이지를 반복하고 dst의 보조 페이지 테이블의 항목의 정확한 복사본을 작성하십시오. 유니티 페이지를 배정하고 즉시 청구해야 합니다.
+> src의 supplemental page table을 dst로 복사합니다. child가 `fork()` 등을 통해 parent의 execution context를 상속할 때 사용합니다. src의 각 page를 순회해 dst에 대응하는 entry를 정확히 복제하십시오. 기본 구현 방식에서는 uninit page를 할당한 뒤 즉시 claim해야 합니다.
 
 ------------------------------------------------------------------------
 
@@ -121,13 +127,13 @@ bool supplemental_page_table_copy (struct supplemental_page_table *dst,
 void supplemental_page_table_kill (struct supplemental_page_table *spt);
 ```
 
-> 보조 페이지 테이블이 보유한 모든 자원을 해제합니다. 프로세스가 종료할 때, 즉 `userprog/process.c`의 `process_exit()`에서 호출됩니다. 페이지 엔트리들을 순회하며 각 페이지에 `destroy(page)`를 호출해야 합니다. 실제 페이지 테이블(pml4)과 물리 메모리(palloc으로 할당한 메모리)는 보조 테이블 정리 후 호출자가 해제하므로 이 함수에서 처리할 필요가 없습니다.
+> supplemental page table이 보유한 모든 자원을 해제합니다. process 종료 시 `userprog/process.c`의 `process_exit()`에서 호출됩니다. entry를 순회하며 각 page에 `destroy(page)`를 호출해야 합니다. 실제 page table인 pml4와 palloc으로 할당한 physical memory의 정리는 이 함수의 책임이 아닙니다. supplemental page table을 정리한 뒤 호출자가 처리합니다.
 
 <a id="page-cleanup"></a>
 
-## 페이지 정리
+## Page 정리
 
-**`uninit_destroy`을 `vm/uninit.c`에 적용하고 `anon_destroy`을 `vm/anon.c`에 적용한다.** 이것은 초기화되지 않은 페이지에서 `destroy` 동작을 위한 핸들러입니다. 초기화되지 않은 페이지가 다른 페이지 객체로 변환되더라도 프로세스가 종료되면 여전히 uninit 페이지가있을 수 있습니다.
+**`vm/uninit.c`의 `uninit_destroy`와 `vm/anon.c`의 `anon_destroy`를 구현하십시오.** uninitialized page의 `destroy` handler입니다. 보통은 다른 type으로 전환되지만, 한 번도 접근되지 않아 process 종료 때까지 uninit 상태인 page도 있을 수 있습니다.
 
 ------------------------------------------------------------------------
 
@@ -135,9 +141,9 @@ void supplemental_page_table_kill (struct supplemental_page_table *spt);
 static void uninit_destroy (struct page *page);
 ```
 
-> page 구조체가 보유한 자원을 해제합니다. 페이지의 VM 타입을 확인하고 그에 맞게 처리하세요.
+> page 구조체가 보유한 자원을 해제합니다. VM type을 확인해 그에 맞게 처리할 수 있습니다.
 
-현재는 익명 페이지만 처리할 수 있습니다. 나중에 이 함수를 다시 방문하여 파일 뒷받침 된 페이지를 청소합니다.
+지금은 anonymous page만 처리하면 됩니다. 나중에 file-backed page 정리도 추가합니다.
 
 ------------------------------------------------------------------------
 
@@ -145,6 +151,6 @@ static void uninit_destroy (struct page *page);
 static void anon_destroy (struct page *page);
 ```
 
-> 익명 페이지가 보유한 자원을 해제합니다. page 구조체 자체는 호출자가 해제하므로 여기서 명시적으로 해제할 필요가 없습니다.
+> anonymous page가 보유한 자원을 해제합니다. page 구조체 자체는 호출자가 해제하므로 여기에서 직접 free하지 않아도 됩니다.
 
-이제 프로젝트 2의 모든 테스트를 통과해야 합니다.
+이제 Project 2의 모든 테스트가 통과해야 합니다.

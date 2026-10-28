@@ -1,12 +1,12 @@
-> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project1/alarm_clock.html) · 수집일: 2026-10-17 · [한국어 목차](../README.md)
+> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project1/alarm_clock.html) · 수집일: 2026-10-17 · 대조·교정: 2026-10-28 · [목차](../README.md)
 
 <a id="alarm-clock"></a>
 
-# 알람 시계
+# Alarm Clock
 
-**`devices/timer.c`에 정의된 `timer_sleep()`를 다시 구현하세요.**
+**`devices/timer.c`에 정의된 `timer_sleep()`를 다시 구현하십시오.**
 
-제공된 구현은 동작하지만 **바쁜 대기(busy waiting)를 수행합니다**. 즉, 충분한 시간이 지날 때까지 현재 시각을 확인하고 `thread_yield()`를 호출하는 반복문을 실행합니다. 바쁜 대기를 사용하지 않도록 다시 구현하세요.
+동작하는 구현이 제공되지만 **busy waiting**을 사용합니다. 충분한 시간이 지날 때까지 반복해서 현재 시간을 확인하고 `thread_yield()`를 호출하는 방식입니다. busy waiting을 하지 않도록 다시 구현하십시오.
 
 ------------------------------------------------------------------------
 
@@ -14,8 +14,8 @@
 void timer_sleep (int64_t ticks);
 ```
 
-> 호출한 스레드의 실행을 최소 x 타이머 틱이 지날 때까지 중단합니다. 시스템이 달리 할 일이 없는 경우가 아니라면 정확히 x 틱 직후에 깨어날 필요는 없습니다. 필요한 시간이 지난 뒤 준비 큐에 넣으면 됩니다.
+> 호출한 thread의 실행을 최소 x timer ticks가 지날 때까지 중단합니다. 다른 작업이 전혀 없는 상황이 아니라면 정확히 x ticks 뒤에 깨울 필요는 없습니다. 필요한 시간이 지난 뒤 ready queue에 넣으면 됩니다.
 
-`timer_sleep()`는 커서를 1초마다 깜박이게 하는 등 실시간으로 동작하는 스레드에 유용합니다. `timer_sleep()`의 인자는 밀리초나 다른 시간 단위가 아닌 타이머 틱으로 표현합니다. 1초에는 `TIMER_FREQ`개의 타이머 틱이 있으며, `TIMER_FREQ`는 `devices/timer.h`에 정의된 매크로입니다. 기본값은 `100`입니다. 이 값을 바꾸면 여러 테스트가 실패할 수 있으므로 변경하지 않는 것을 권장합니다.
+`timer_sleep()`는 1초마다 cursor를 깜박이는 것처럼 실시간으로 동작하는 thread에 유용합니다. `timer_sleep()`의 argument 단위는 milliseconds 등이 아니라 timer tick입니다. 1초에는 `TIMER_FREQ`개의 timer tick이 있으며, `TIMER_FREQ`는 `devices/timer.h`에 정의된 macro입니다. 기본값은 `100`입니다. 이 값을 바꾸면 여러 테스트가 실패할 수 있으므로 변경하지 않는 것을 권장합니다.
 
-각각 밀리초, 마이크로초, 나노초 단위로 대기하는 별도 함수 `timer_msleep()`, `timer_usleep()`, `timer_nsleep()`도 있습니다. 이 함수들은 필요할 때 자동으로 `timer_sleep()`를 호출하므로 수정할 필요가 없습니다. 알람 시계 구현은 후속 프로젝트의 필수 요소는 아니지만 프로젝트 4에서 유용할 수 있습니다.
+milliseconds, microseconds, nanoseconds 단위로 기다리는 함수인 `timer_msleep()`, `timer_usleep()`, `timer_nsleep()`도 있습니다. 필요한 경우 이 함수들이 자동으로 `timer_sleep()`를 호출하므로 수정하지 않아도 됩니다. 이후 프로젝트에서 alarm clock 구현이 필수는 아니지만, Project 4에서는 유용하게 활용할 수 있습니다.

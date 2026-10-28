@@ -1,22 +1,22 @@
-> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project4/subdirectories.html) · 수집일: 2026-10-17 · [한국어 목차](../README.md)
+> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project4/subdirectories.html) · 수집일: 2026-10-17 · 대조·교정: 2026-10-28 · [목차](../README.md)
 
 <a id="subdirectories"></a>
 
-# 하위 디렉터리
+# Subdirectories
 
-**계층적 이름 공간을 구현합니다.** 기본 파일 시스템에서 모든 파일이 하나의 디렉토리에 있습니다. 디렉토리 항목이 파일 또는 다른 디렉토리에 가리키는 것을 허용하도록 변경합니다.
+**계층적인 namespace를 구현하십시오.** 기본 file system은 모든 파일을 하나의 directory에 저장합니다. directory entry가 파일뿐 아니라 다른 directory도 가리킬 수 있도록 변경하십시오.
 
-다른 파일처럼 디렉터리가 원래 크기를 넘어 확장될 수 있는지 확인하십시오.
+directory도 일반 파일처럼 초기 크기를 넘어 확장될 수 있어야 합니다.
 
-기본 파일 시스템은 파일 이름에 14 문자 제한이 있습니다. 이 제한은 개별 파일 이름 구성 요소에 대해 유지하거나 선택에 따라 확장할 수 있습니다. 전체 경로 이름이 14개의 문자로 길어질 수 있도록 해야 합니다.
+기본 file system은 파일 이름을 14자로 제한합니다. 개별 path component의 이름 길이는 이 제한을 유지하거나 늘려도 됩니다. 다만 **전체 path는 14자보다 훨씬 길 수 있어야 합니다.**
 
-**각 프로세스에 대해 별도의 현재 디렉토리를 유지하십시오.** 시작 시, 루트를 초기 프로세스의 현재 디렉토리로 설정합니다. 하나의 프로세스가 포크 시스템 호출으로 다른 프로세스를 시작하면 자식 프로세스는 부모의 현재 디렉토리를 물려받습니다. 그 후, 두 프로세스의 현재 디렉토리는 독립적이므로 자신의 현재 디렉토리를 변경하는 것은 다른 것에 아무런 영향을 미치지 않습니다. (이 때문에 유닉스에서는 cd 명령어는 외부 프로그램 아닌 내장된 셸입니다.)
+**각 process마다 독립적인 current working directory를 유지하십시오.** 초기 process의 current working directory는 root로 설정합니다. process가 fork system call로 child process를 생성하면 child는 parent의 current working directory를 상속합니다. 그 뒤에는 양쪽이 독립적이므로 한쪽이 current working directory를 바꿔도 다른 쪽에는 영향을 주지 않습니다. Unix에서 cd가 외부 프로그램이 아니라 shell built-in인 이유도 이것입니다.
 
-기존 시스템 호출을 업데이트하여 호출자가 파일 이름을 제공하면 절대 또는 상대적인 경로 이름을 사용할 수 있습니다. 디렉토리 분리자 문자는 앞 슬래시 ("/"). 또한 UNIX에서와 같은 의미를 가진 특수 파일 이름 '.'와 '..'를 지원해야 합니다.
+파일 이름을 받는 모든 기존 system call에서 absolute path와 relative path를 사용할 수 있도록 수정하십시오. path separator는 slash('/')입니다. Unix와 같은 의미의 특수 이름 '.'과 '..'도 지원해야 합니다.
 
-`open` 시스템 호출을 업데이트하여 디렉터리도 열 수 있습니다. 기존 시스템 호출 중, 단지 Close만이 디렉토리를 위한 파일 디스크립터를 받아들일 필요가 있다.
+`open` system call로 directory도 열 수 있도록 수정하십시오. 기존 system call 중 directory를 가리키는 file descriptor를 받아야 하는 것은 close뿐입니다.
 
-`remove` 시스템 호출을 업데이트하여 일반 파일 외에도 빈 디렉토리를 (뿌리 이외) 삭제할 수 있습니다. 디렉터리는 파일이나 하위 디렉터리를 포함하지 않는 경우에만 삭제될 수 있습니다. 프로세스에 의해 열리는 디렉토리의 삭제 또는 현재 작업 디렉토리로 사용되는 프로세스의 삭제 허용 여부를 결정할 수 있습니다. 허용되는 경우 파일 ('.' 및 '..'를 포함하여) 를 열거나 삭제된 디렉토리에서 새로운 파일을 만들려는 시도는 허용되지 않습니다. 다음과 같은 새로운 시스템 호출을 실행:
+`remove` system call은 일반 파일 외에 빈 directory도 삭제할 수 있어야 합니다. 단, root는 삭제할 수 없습니다. directory 안에 '.'과 '..'을 제외한 파일이나 subdirectory가 하나라도 있으면 삭제해서는 안 됩니다. 어떤 process가 열어 두었거나 current working directory로 사용 중인 directory를 삭제할 수 있게 할지는 선택할 수 있습니다. 삭제를 허용한다면, 삭제된 directory에서 파일을 열거나 새 파일을 만드는 시도는 모두 거부해야 합니다. 여기에는 '.'과 '..'을 여는 경우도 포함됩니다. 다음 system call을 구현하십시오.
 
 ------------------------------------------------------------------------
 
@@ -24,7 +24,7 @@
 bool chdir (const char *dir);
 ```
 
-> 프로세스의 현재 작업 디렉터리를 상대 또는 절대 경로 dir로 변경합니다. 성공하면 true, 실패하면 false를 반환합니다.
+> process의 current working directory를 dir로 변경합니다. dir는 absolute path나 relative path일 수 있습니다. 성공하면 true, 실패하면 false를 반환합니다.
 
 ------------------------------------------------------------------------
 
@@ -32,7 +32,7 @@ bool chdir (const char *dir);
 bool mkdir (const char *dir);
 ```
 
-> 상대 또는 절대 경로 dir에 해당하는 디렉터리를 만듭니다. 성공하면 true, 실패하면 false를 반환합니다. dir 자체가 이미 존재하거나 마지막 이름을 제외한 중간 디렉터리 중 하나라도 존재하지 않으면 실패합니다. 즉 `mkdir("/a/b/c")`는 `/a/b`이 이미 존재하고 `/a/b/c`는 존재하지 않을 때에만 성공합니다.
+> dir라는 directory를 만듭니다. dir는 absolute path나 relative path일 수 있습니다. 성공하면 true, 실패하면 false를 반환합니다. dir가 이미 존재하거나 마지막 component를 제외한 중간 directory 중 하나라도 존재하지 않으면 실패합니다. 즉, `mkdir("/a/b/c")`는 `/a/b`가 이미 존재하고 `/a/b/c`는 존재하지 않을 때만 성공합니다.
 
 ------------------------------------------------------------------------
 
@@ -40,11 +40,11 @@ bool mkdir (const char *dir);
 bool readdir (int fd, char *name);
 ```
 
-> 디렉터리를 가리켜야 하는 파일 디스크립터 fd에서 디렉터리 엔트리를 읽습니다. 성공하면 널 문자로 끝나는 파일 이름을 name에 저장하고 true를 반환합니다. name에는 `READDIR_MAX_LEN + 1`바이트를 담을 공간이 있어야 합니다. 남은 엔트리가 없으면 false를 반환합니다.
+> directory를 나타내는 file descriptor fd에서 다음 entry를 읽습니다. 성공하면 null-terminated 파일 이름을 name에 저장하고 true를 반환합니다. name에는 최소 `READDIR_MAX_LEN + 1` bytes를 저장할 공간이 있어야 합니다. 남은 entry가 없으면 false를 반환합니다.
 >
-> `readdir`는 .과 ..을 반환하면 안 됩니다. 열린 동안 디렉터리가 변경됐다면 일부 엔트리를 읽지 못하거나 여러 번 읽어도 허용됩니다. 변경되지 않았다면 임의 순서로 각 엔트리를 정확히 한 번씩 읽어야 합니다.
+> `readdir`는 '.'과 '..'을 반환해서는 안 됩니다. directory가 열린 동안 내용이 변경되었다면 일부 entry를 건너뛰거나 여러 번 읽어도 됩니다. 내용이 바뀌지 않았다면 순서에 관계없이 각 entry를 정확히 한 번씩 읽어야 합니다.
 >
-> `READDIR_MAX_LEN`는 `lib/user/syscall.h`에서 정의된다. 파일 시스템은 기본 파일 시스템보다 더 긴 파일 이름을 지원하는 경우, 기본값인 14에서 이 값을 증가시켜야 합니다.
+> `READDIR_MAX_LEN`는 `lib/user/syscall.h`에 정의되어 있습니다. 기본값인 14자보다 긴 파일 이름을 지원한다면 이 값도 늘려야 합니다.
 
 ------------------------------------------------------------------------
 
@@ -52,7 +52,7 @@ bool readdir (int fd, char *name);
 bool isdir (int fd);
 ```
 
-> fd가 디렉터리를 나타내면 true, 일반 파일이면 false를 반환합니다.
+> fd가 directory를 나타내면 true, 일반 파일을 나타내면 false를 반환합니다.
 
 ------------------------------------------------------------------------
 
@@ -60,15 +60,15 @@ bool isdir (int fd);
 int inumber (int fd);
 ```
 
-> fd에 연결된 아이노드의 번호를 반환합니다. fd는 일반 파일 또는 디렉터리를 나타낼 수 있습니다.
+> fd와 연결된 inode의 번호를 반환합니다. fd는 일반 파일이나 directory를 가리킬 수 있습니다.
 >
-> 아이노드 번호는 파일 또는 디렉토리를 지속적으로 식별합니다. 파일의 존재 기간 동안 독특합니다. Pintos에서, 아이노드의 섹터 번호는 아이노드 번호로 사용하기에 적합합니다.
+> inode number는 파일이나 directory를 존재하는 동안 지속적으로 식별하는 고유 번호입니다. Pintos에서는 inode의 sector 번호를 inode number로 사용할 수 있습니다.
 
 <a id="soft-link"></a>
 
-# 심볼릭 링크
+# Symbolic Link
 
-**핑토에서 부드러운 링크 메커니즘을 구현하십시오.** 부드러운 링크 (aka. 상징적 링크) 는 다른 파일 또는 디렉토리를 참조하는 가짜 파일 객체입니다. 이 파일은 절대적 또는 상대적 경로 측면에서 지각된 파일의 경로 정보를 포함합니다. 다음과 같은 상황을 가정해 봅시다.
+**Pintos에 symbolic link를 구현하십시오.** soft link라고도 부르는 symbolic link는 다른 파일이나 directory를 참조하는 특수한 파일 객체입니다. 이 파일에는 대상의 absolute path 또는 relative path가 저장됩니다. 다음 구성을 가정해 봅시다.
 
     /
     ├── a
@@ -77,7 +77,7 @@ int inumber (int fd);
     │   └── link2 -> ../file
     └── file
 
-`link1`의 소프트 링크는 `/a`에서 `/file` (정부 경로) 를 지점하고 `link2`은 `/a`에서 `../file` (정부 경로) 를 지점한다. `link1` 또는 `link2` 파일을 읽는 것은 `/file`을 읽는 것과 동등합니다.
+`/a`의 symbolic link `link1`는 absolute path `/file`을 가리킵니다. `/a`의 `link2`는 relative path `../file`을 가리킵니다. `link1`나 `link2`를 통해 파일을 읽는 것은 `/file`을 읽는 것과 같습니다.
 
 ------------------------------------------------------------------------
 
@@ -85,4 +85,4 @@ int inumber (int fd);
 int symlink (const char *target, const char *linkpath);
 ```
 
-> 문자열 target을 내용으로 갖는 심볼릭 링크 linkpath를 만듭니다. 성공하면 0, 실패하면 -1을 반환합니다.
+> 문자열 target을 내용으로 저장하는 symbolic link linkpath를 생성합니다. 성공하면 0, 실패하면 -1을 반환합니다.

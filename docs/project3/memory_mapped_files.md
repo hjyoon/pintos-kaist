@@ -1,16 +1,16 @@
-> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project3/memory_mapped_files.html) · 수집일: 2026-10-17 · [한국어 목차](../README.md)
+> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project3/memory_mapped_files.html) · 수집일: 2026-10-17 · 대조·교정: 2026-10-28 · [목차](../README.md)
 
 <a id="memory-mapped-files"></a>
 
-# 메모리 매핑 파일
+# Memory-Mapped Files
 
-이 섹션에서는 메모리 매핑 페이지를 구현합니다. 익명 페이지와 달리 메모리 매핑 페이지들은 파일 백업 매핑입니다. 페이지의 내용은 기존 파일의 데이터를 반영합니다. 페이지 폴트가 발생하면 즉시 물리적 프레임이 할당되어 파일에서 메모리에 복사됩니다. 메모리 매핑 페이지가 매핑되지 않거나 교체될 때, 내용의 모든 변화는 파일에 반영됩니다.
+이 절에서는 memory-mapped page를 구현합니다. anonymous page와 달리 file-backed mapping이며, page의 내용은 기존 파일의 데이터에 대응합니다. page fault가 발생하면 physical frame을 할당하고 파일 내용을 memory로 읽어 옵니다. unmap하거나 swap out할 때는 변경 내용을 파일에 반영합니다.
 
 <a id="mmap-and-munmap-system-call"></a>
 
-## `mmap` 및 `munmap` 시스템 콜
+## `mmap`과 `munmap` System Call
 
-**`mmap` 및 `munmap`을 구현**, 이는 메모리 매핑 파일의 두 개의 시스템 호출입니다. VM 시스템은 mmap 영역에서 페이지를 게으르게 로드하고 mmaped 파일 자체를 매핑의 백업 스토어로 사용해야 합니다. 이 두 시스템 호출을 구현하기 위해 `do_mmap` 및 `do_munmap`에서 정의된 `vm/file.c`을 구현하고 사용해야합니다.
+**Memory-mapped file용 system call `mmap`과 `munmap`을 구현하십시오.** mmap 영역은 lazy loading이어야 하며 map한 파일 자체를 backing store로 사용해야 합니다. 두 system call을 위해 `vm/file.c`의 `do_mmap`와 `do_munmap`를 구현하고 사용하십시오.
 
 ------------------------------------------------------------------------
 
@@ -18,11 +18,13 @@
 void *mmap (void *addr, size_t length, int writable, int fd, off_t offset);
 ```
 
-> `fd`로 열린 파일에서 `offset`바이트 위치부터 `length`바이트를 프로세스의 가상 주소 `addr`에 매핑합니다. 파일 전체는 `addr`에서 시작하는 연속 가상 페이지들에 매핑됩니다. 파일 길이가 PGSIZE의 배수가 아니면 마지막 매핑 페이지의 일부 바이트가 파일 끝을 넘어갑니다. 이 바이트들은 페이지를 메모리에 들여올 때 0으로 채우고 디스크에 다시 쓸 때는 버립니다. 성공하면 파일이 매핑된 가상 주소를 반환합니다. 실패하면 파일 매핑에 유효하지 않은 주소인 NULL을 반환해야 합니다.
+> `fd`로 열린 파일의 `offset` byte 위치부터 `length` bytes를 process의 virtual address `addr`에 map합니다. mapping은 `addr`부터 연속된 virtual page들로 구성합니다. 파일 크기가 PGSIZE의 배수가 아니면 마지막 page의 일부가 EOF 밖으로 나갈 수 있습니다. 그 부분은 fault 시 0으로 채우고, disk에 write-back할 때는 버려야 합니다. 성공하면 mapping의 virtual address를, 실패하면 유효한 mapping 주소가 아닌 NULL을 반환합니다.
 
-`mmap`에 대한 호출이 실패할 수 있는 경우, fd로 열린 파일의 길이는 0 바이트입니다. Addr가 페이지에 맞지 않거나 지도된 페이지의 범위가 실행 가능한 로드 시간에 지도된 스택이나 페이지를 포함한 기존의 지도된 페이지 집합을 덮으면 실패해야 합니다. 리눅스에서, `addr`가 NULL이라면, 커널은 매핑를 만드는 적절한 주소를 찾습니다. 간단하기 위해, 주어진 `addr`에서 mmap을 시도할 수 있습니다. 따라서, `addr`가 0이라면 실패해야 합니다. 왜냐하면 어떤 Pintos 코드는 가상 페이지 0가 지도되지 않았다고 가정하기 때문입니다. `length`가 0일 때 당신의 mmap도 실패해야 합니다. 마지막으로, 콘솔 입력 및 출력을 나타내는 파일 디스크립터는 매핑 할 수 없습니다.
+> **원문 주의:** 원문에는 이어서 “entire file”이라는 표현이 있지만, 범위는 이 함수의 length·offset argument와 첫 문장의 설명을 함께 읽어 판단해야 합니다.
 
-메모리 매핑를 가진 페이지는 익명 페이지와 마찬가지로 게으른 방식으로 할당되어야 합니다. 페이지 객체를 만들기 위해 `vm_alloc_page_with_initializer` 또는 `vm_alloc_page`을 사용할 수 있습니다.
+`mmap`은 fd로 열린 파일의 길이가 0이면 실패할 수 있습니다. addr가 page-aligned가 아니거나, mapping 범위가 stack·executable page 등 기존 page와 겹치면 반드시 실패해야 합니다. Linux에서는 `addr`가 NULL이면 적당한 주소를 찾아 주지만, 이 과제에서는 주어진 `addr`만 사용하면 됩니다. Pintos 일부 코드가 virtual page 0을 비워 둔다고 가정하므로 `addr`가 0이면 실패해야 합니다. `length`이 0인 경우에도 실패해야 하며, console input·output의 file descriptor는 map할 수 없습니다.
+
+memory-mapped page도 anonymous page처럼 lazy하게 할당해야 합니다. page 객체를 만들 때 `vm_alloc_page_with_initializer`나 `vm_alloc_page`를 사용할 수 있습니다.
 
 ------------------------------------------------------------------------
 
@@ -30,15 +32,17 @@ void *mmap (void *addr, size_t length, int writable, int fd, off_t offset);
 void munmap (void *addr);
 ```
 
-> `addr` 주소 범위의 매핑을 해제합니다. 이 값은 같은 프로세스가 이전에 mmap을 호출해 반환받은 가상 주소이며 아직 매핑이 해제되지 않은 것이어야 합니다.
+> `addr`에서 시작하는 mapping을 해제합니다. 이 주소는 같은 process의 이전 mmap이 반환한 주소여야 하며, 아직 unmap하지 않은 mapping이어야 합니다.
 
-모든 매핑은 프로세스가 종료될 때, `exit`을 통해 또는 다른 방법으로 함부로 매핑되지 않습니다. 매핑이 암묵적으로 또는 명시적으로 지도되지 않을 때 프로세스에 의해 작성된 모든 페이지는 파일에 다시 작성되며, 작성되지 않은 페이지는 작성되지 않아야합니다. 그 다음 페이지는 프로세스의 가상 페이지 목록에서 제거됩니다.
+`exit` 호출이나 다른 이유로 process가 종료되면 모든 mapping을 암묵적으로 해제합니다. 명시적·암묵적 unmap 모두에서 process가 수정한 page만 파일에 write-back해야 합니다. 수정하지 않은 page는 기록하면 안 됩니다. 그 뒤 process의 virtual page 목록에서 page를 제거합니다.
 
-파일을 닫거나 삭제하면 그 매핑를 풀 수 없습니다. 일단 생성되면, UNIX 컨벤션에 따라 `munmap`이 호출되거나 프로세스가 종료될 때까지 매핑가 유효합니다. 자세한 내용은 [열린 파일 을 제거 하는 방법](../project2/FAQ.md) 문서를 참조하십시오. `file_reopen` 함수를 사용하여 각 매핑에 대한 파일의 개별적이고 독립적인 참조를 얻어야 합니다.
+파일을 close하거나 remove해도 mapping은 사라지지 않습니다. Unix와 마찬가지로 한 번 만든 mapping은 `munmap`을 호출하거나 process가 종료될 때까지 유효합니다. [열린 파일의 삭제](../project2/FAQ.md)를 참조하십시오. 각 mapping마다 파일을 독립적으로 참조하도록 `file_reopen`을 사용해야 합니다.
 
-두 개 이상의 프로세스가 동일한 파일을 매핑하는 경우, 그들은 일관된 데이터를 볼 필요가 없습니다. 유닉스는 두 매핑이 동일한 물리적 페이지를 공유하도록 함으로써 이를 처리하며, mmap 시스템 호출은 클라이언트가 페이지를 공유하거나 개인 (즉, 복사-쓰기) 여부를 지정할 수 있는 인자을 가지고 있습니다.
+여러 process가 같은 파일을 map했을 때 서로 일관된 데이터를 보게 할 필요는 없습니다. Unix는 같은 physical page를 공유해 이를 처리하며, mmap argument로 shared mapping인지 private mapping, 즉 copy-on-write인지도 지정할 수 있습니다.
 
-필요에 따라 `vm_file_init` 및 `vm_file_initializer`을 `vm/vm.c`에 수정하는 것이 좋습니다.
+필요에 따라 `vm/vm.c`의 `vm_file_init`와 `vm_file_initializer`를 수정할 수 있습니다.
+
+> **원문 주의:** 위 설명의 파일 경로와 initializer 이름은 원문 표기입니다. 이 저장소에서는 vm/file.c의 vm_file_init와 file_backed_initializer를 확인하십시오.
 
 ------------------------------------------------------------------------
 
@@ -46,7 +50,7 @@ void munmap (void *addr);
 void vm_file_init (void);
 ```
 
-> 파일 백업 페이지 서브시스템을 초기화합니다. 이 함수에서는 파일 백업 페이지와 관련된 모든 것을 설정할 수 있습니다.
+> file-backed page subsystem을 초기화합니다. 관련 초기 설정을 이 함수에서 수행하십시오.
 
 ------------------------------------------------------------------------
 
@@ -54,7 +58,7 @@ void vm_file_init (void);
 bool file_backed_initializer (struct page *page, enum vm_type type, void *kva);
 ```
 
-> 파일 뒷받침된 페이지를 초기화합니다. 함수는 먼저 `page->operations`에서 파일 백업 페이지의 처리기를 설정합니다. 메모리를 백업하는 파일과 같은 페이지 구조에 대한 정보를 업데이트하고 싶을 수도 있습니다.
+> file-backed page를 초기화합니다. 먼저 `page->operations`에 handler들을 설정합니다. backing file 등 필요한 정보를 page 구조체에 추가할 수 있습니다.
 
 ------------------------------------------------------------------------
 
@@ -62,4 +66,4 @@ bool file_backed_initializer (struct page *page, enum vm_type type, void *kva);
 static void file_backed_destroy (struct page *page);
 ```
 
-> 연결된 파일을 닫아 파일 기반 페이지를 해제합니다. 내용이 변경됐다면 그 변경분을 반드시 파일에 다시 써야 합니다. 이 함수에서 page 구조체 자체를 해제할 필요는 없고 `file_backed_destroy`의 호출자가 처리해야 합니다.
+> 연결된 파일을 닫아 file-backed page를 정리합니다. 내용이 dirty라면 변경 사항을 먼저 파일에 기록해야 합니다. page 구조체 자체는 `file_backed_destroy`의 호출자가 해제하므로 여기에서 free하지 않아도 됩니다.

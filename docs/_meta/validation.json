@@ -1,338 +1,621 @@
 {
-  "checked_on": "2026-10-17",
+  "checked_on": "2026-10-28",
   "document_count": 41,
   "protected_code_items": 1488,
   "all_code_preserved": true,
   "all_heading_counts_preserved": true,
+  "all_original_link_targets_preserved_after_documented_repairs": true,
+  "all_source_hashes_match_collection": true,
   "code_whitespace_normalization": "Block code: CRLF to LF, tabs to 4 spaces, trim line-end whitespace and outer newlines. Inline code: collapse HTML-rendered whitespace.",
   "documents": [
     {
       "document": "appendix/debugging_tools.md",
       "protected_code_items": 55,
+      "code_blocks": 11,
+      "inline_code_items": 44,
       "code_preserved": true,
       "source_headings": 11,
       "translated_headings": 11,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 3,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "appendix/development_tools.md",
       "protected_code_items": 27,
+      "code_blocks": 0,
+      "inline_code_items": 27,
       "code_preserved": true,
       "source_headings": 3,
       "translated_headings": 3,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 3,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "appendix/hash_table.md",
       "protected_code_items": 97,
+      "code_blocks": 25,
+      "inline_code_items": 72,
       "code_preserved": true,
       "source_headings": 8,
       "translated_headings": 8,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 1,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "appendix/memory_allocation.md",
       "protected_code_items": 18,
+      "code_blocks": 6,
+      "inline_code_items": 12,
       "code_preserved": true,
       "source_headings": 3,
       "translated_headings": 3,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 2,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "appendix/page_table.md",
       "protected_code_items": 15,
+      "code_blocks": 8,
+      "inline_code_items": 7,
       "code_preserved": true,
       "source_headings": 4,
       "translated_headings": 4,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 0,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "appendix/synchronization.md",
       "protected_code_items": 63,
+      "code_blocks": 28,
+      "inline_code_items": 35,
       "code_preserved": true,
       "source_headings": 7,
       "translated_headings": 7,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 2,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "appendix/threads.md",
       "protected_code_items": 75,
+      "code_blocks": 25,
+      "inline_code_items": 50,
       "code_preserved": true,
       "source_headings": 3,
       "translated_headings": 3,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 7,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "appendix/virtual_address.md",
       "protected_code_items": 28,
+      "code_blocks": 16,
+      "inline_code_items": 12,
       "code_preserved": true,
       "source_headings": 1,
       "translated_headings": 1,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 1,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "index.md",
       "protected_code_items": 0,
+      "code_blocks": 0,
+      "inline_code_items": 0,
       "code_preserved": true,
       "source_headings": 1,
       "translated_headings": 1,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 1,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "introduction/getting_started.md",
       "protected_code_items": 44,
+      "code_blocks": 2,
+      "inline_code_items": 42,
       "code_preserved": true,
       "source_headings": 4,
       "translated_headings": 4,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 4,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "introduction/grading.md",
       "protected_code_items": 23,
+      "code_blocks": 0,
+      "inline_code_items": 23,
       "code_preserved": true,
       "source_headings": 3,
       "translated_headings": 3,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 0,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "introduction/legal_and_ethical_issues.md",
       "protected_code_items": 1,
+      "code_blocks": 0,
+      "inline_code_items": 1,
       "code_preserved": true,
       "source_headings": 1,
       "translated_headings": 1,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 0,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project1/FAQ.md",
       "protected_code_items": 46,
+      "code_blocks": 3,
+      "inline_code_items": 43,
       "code_preserved": true,
       "source_headings": 22,
       "translated_headings": 22,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 2,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project1/advanced_scheduler.md",
       "protected_code_items": 152,
+      "code_blocks": 4,
+      "inline_code_items": 148,
       "code_preserved": true,
       "source_headings": 8,
       "translated_headings": 8,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 2,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project1/alarm_clock.md",
       "protected_code_items": 14,
+      "code_blocks": 1,
+      "inline_code_items": 13,
       "code_preserved": true,
       "source_headings": 1,
       "translated_headings": 1,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 0,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project1/introduction.md",
       "protected_code_items": 118,
+      "code_blocks": 0,
+      "inline_code_items": 118,
       "code_preserved": true,
       "source_headings": 9,
       "translated_headings": 9,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 13,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project1/priority_scheduling.md",
       "protected_code_items": 9,
+      "code_blocks": 2,
+      "inline_code_items": 7,
       "code_preserved": true,
       "source_headings": 1,
       "translated_headings": 1,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 0,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project2/FAQ.md",
       "protected_code_items": 24,
+      "code_blocks": 1,
+      "inline_code_items": 23,
       "code_preserved": true,
       "source_headings": 17,
       "translated_headings": 17,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 1,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project2/argument_passing.md",
       "protected_code_items": 44,
+      "code_blocks": 2,
+      "inline_code_items": 42,
       "code_preserved": true,
       "source_headings": 4,
       "translated_headings": 4,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 1,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project2/deny_write.md",
       "protected_code_items": 2,
+      "code_blocks": 0,
+      "inline_code_items": 2,
       "code_preserved": true,
       "source_headings": 1,
       "translated_headings": 1,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 0,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project2/dup.md",
       "protected_code_items": 23,
+      "code_blocks": 1,
+      "inline_code_items": 22,
       "code_preserved": true,
       "source_headings": 1,
       "translated_headings": 1,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 0,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project2/introduction.md",
       "protected_code_items": 82,
+      "code_blocks": 4,
+      "inline_code_items": 78,
       "code_preserved": true,
       "source_headings": 8,
       "translated_headings": 8,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 3,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project2/process_termination.md",
       "protected_code_items": 3,
+      "code_blocks": 1,
+      "inline_code_items": 2,
       "code_preserved": true,
       "source_headings": 1,
       "translated_headings": 1,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 0,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project2/system_call.md",
       "protected_code_items": 112,
+      "code_blocks": 14,
+      "inline_code_items": 98,
       "code_preserved": true,
       "source_headings": 3,
       "translated_headings": 3,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 2,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project2/user_memory.md",
       "protected_code_items": 0,
+      "code_blocks": 0,
+      "inline_code_items": 0,
       "code_preserved": true,
       "source_headings": 1,
       "translated_headings": 1,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 0,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project3/FAQ.md",
       "protected_code_items": 6,
+      "code_blocks": 0,
+      "inline_code_items": 6,
       "code_preserved": true,
       "source_headings": 5,
       "translated_headings": 5,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 0,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project3/accessing_user_memory.md",
       "protected_code_items": 1,
+      "code_blocks": 0,
+      "inline_code_items": 1,
       "code_preserved": true,
       "source_headings": 1,
       "translated_headings": 1,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 1,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project3/anon.md",
       "protected_code_items": 81,
+      "code_blocks": 10,
+      "inline_code_items": 71,
       "code_preserved": true,
       "source_headings": 5,
       "translated_headings": 5,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 1,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project3/cow.md",
       "protected_code_items": 2,
+      "code_blocks": 0,
+      "inline_code_items": 2,
       "code_preserved": true,
       "source_headings": 1,
       "translated_headings": 1,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 0,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project3/introduction.md",
       "protected_code_items": 55,
+      "code_blocks": 4,
+      "inline_code_items": 51,
       "code_preserved": true,
       "source_headings": 17,
       "translated_headings": 17,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 6,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project3/memory_mapped_files.md",
       "protected_code_items": 33,
+      "code_blocks": 5,
+      "inline_code_items": 28,
       "code_preserved": true,
       "source_headings": 2,
       "translated_headings": 2,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 1,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project3/paging.md",
       "protected_code_items": 12,
+      "code_blocks": 0,
+      "inline_code_items": 12,
       "code_preserved": true,
       "source_headings": 1,
       "translated_headings": 1,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 0,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project3/stack_growth.md",
       "protected_code_items": 22,
+      "code_blocks": 2,
+      "inline_code_items": 20,
       "code_preserved": true,
       "source_headings": 1,
       "translated_headings": 1,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 0,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project3/swapping.md",
       "protected_code_items": 22,
+      "code_blocks": 6,
+      "inline_code_items": 16,
       "code_preserved": true,
       "source_headings": 3,
       "translated_headings": 3,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 1,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project3/vm_management.md",
       "protected_code_items": 66,
+      "code_blocks": 10,
+      "inline_code_items": 56,
       "code_preserved": true,
       "source_headings": 6,
       "translated_headings": 6,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 2,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project4/FAQ.md",
       "protected_code_items": 18,
+      "code_blocks": 0,
+      "inline_code_items": 18,
       "code_preserved": true,
       "source_headings": 10,
       "translated_headings": 10,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 0,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project4/buffer_cache.md",
       "protected_code_items": 6,
+      "code_blocks": 0,
+      "inline_code_items": 6,
       "code_preserved": true,
       "source_headings": 2,
       "translated_headings": 2,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 0,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project4/indexed_and_extensible_files.md",
       "protected_code_items": 36,
+      "code_blocks": 6,
+      "inline_code_items": 30,
       "code_preserved": true,
       "source_headings": 3,
       "translated_headings": 3,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 0,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project4/introduction.md",
       "protected_code_items": 25,
+      "code_blocks": 0,
+      "inline_code_items": 25,
       "code_preserved": true,
       "source_headings": 4,
       "translated_headings": 4,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 1,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project4/subdirectories.md",
       "protected_code_items": 25,
+      "code_blocks": 7,
+      "inline_code_items": 18,
       "code_preserved": true,
       "source_headings": 2,
       "translated_headings": 2,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 0,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     },
     {
       "document": "project4/synchronization.md",
       "protected_code_items": 3,
+      "code_blocks": 0,
+      "inline_code_items": 3,
       "code_preserved": true,
       "source_headings": 1,
       "translated_headings": 1,
-      "headings_preserved": true
+      "headings_preserved": true,
+      "source_links": 0,
+      "links_preserved": true,
+      "source_sha256_matches_collection": true
     }
-  ]
+  ],
+  "local_link_check": "41 source pages; 42 Markdown files; 140 local links; 0 errors",
+  "link_repair_rules": 23,
+  "review": {
+    "method": "Direct Korean retranslation and full source comparison by the assistant. No local translation model was used during this review.",
+    "coverage": "All 39 HTML pages and 2 directly published Markdown pages in sources.json.",
+    "terminology": "Retain common and important OS, architecture, VM, and file system terms in English; translate explanatory prose into Korean.",
+    "preservation_check": "Compare rendered code, heading levels, and link targets with the original source. Link corrections are documented in link-repairs.json.",
+    "source_corrections_policy": "Preserve original code and API prototypes. Identify upstream errors and skeleton version differences in explicit translator notes.",
+    "implementation_changes": false,
+    "reviewed_source_issues": [
+      {
+        "document": "introduction/getting_started.md",
+        "issue": "Clarify that shell startup files need an absolute activate path."
+      },
+      {
+        "document": "project1/advanced_scheduler.md",
+        "issue": "Explain the inconsistent EWMA expansion and the load_avg=2 decay example; preserve the original equations and distinguish the required update formulas."
+      },
+      {
+        "document": "project1/advanced_scheduler.md",
+        "issue": "Note that thread_set_nice returns void in the skeleton, unlike the original prototype."
+      },
+      {
+        "document": "project2/introduction.md",
+        "issue": "0x400000 is 4 MiB, not approximately 128 MB."
+      },
+      {
+        "document": "project2/FAQ.md",
+        "issue": "Resolve the contradictory can/cannot pointer cast explanation in favor of the surrounding No and pointer-size warning."
+      },
+      {
+        "document": "project3/anon.md",
+        "issue": "Distinguish invalid accesses from recoverable lazy-loading, swap, and copy-on-write faults; note the reversed valid/bogus wording."
+      },
+      {
+        "document": "project3/anon.md",
+        "issue": "Note the incorrect include/vm/page.h and include/vm/uninit.c paths."
+      },
+      {
+        "document": "project3/vm_management.md",
+        "issue": "Describe runtime function-pointer dispatch and note the file_backed_destory typo and PALLOC_USER versus PAL_USER naming."
+      },
+      {
+        "document": "project3/memory_mapped_files.md",
+        "issue": "Clarify the length/offset mapping range versus the original entire file wording; note the initializer and source path typos."
+      },
+      {
+        "document": "project3/FAQ.md",
+        "issue": "Identify the embedded stack-pointer question as unanswered in the original rather than invent an answer."
+      },
+      {
+        "document": "project4/indexed_and_extensible_files.md",
+        "issue": "Note that the original six functions list has five entries and that fat_fs_init returns void in the skeleton."
+      },
+      {
+        "document": "appendix/memory_allocation.md",
+        "issue": "Distinguish the legacy kernel-pool description from the Project 2 PAL_USER allocation in the skeleton."
+      },
+      {
+        "document": "appendix/hash_table.md",
+        "issue": "Clarify opaque iterator wording and identify malformed type and parameter names in preserved prototypes."
+      },
+      {
+        "document": "appendix/page_table.md",
+        "issue": "Identify the uint64 t and pgdir_destory typos in preserved source notation."
+      },
+      {
+        "document": "appendix/synchronization.md",
+        "issue": "Clarify that an optimization barrier constrains the compiler rather than providing a CPU memory fence or mutual exclusion; qualify the external-function discussion for interprocedural optimization."
+      },
+      {
+        "document": "appendix/debugging_tools.md",
+        "issue": "Correct the plain-prose GDB command diassemble to disassemble and the malformed Ctrl+C notation."
+      }
+    ]
+  }
 }

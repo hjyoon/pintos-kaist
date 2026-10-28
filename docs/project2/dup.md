@@ -1,14 +1,14 @@
-> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project2/dup.html) · 수집일: 2026-10-17 · [한국어 목차](../README.md)
+> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project2/dup.html) · 수집일: 2026-10-17 · 대조·교정: 2026-10-28 · [목차](../README.md)
 
 <a id="extend-file-descriptor-extra"></a>
 
-# 파일 디스크립터 확장 (추가 과제)
+# File Descriptor 확장 — Extra
 
-**리눅스에서 stdin, stdout 및 dup2 시스템 호출을 종료하는 것을 지원하기 위해**
+**Linux처럼 stdin·stdout을 닫는 기능과 dup2 system call을 지원하십시오.**
 
-`stdin` 및 `stdout`의 fd를 닫는 것은 현재 Pintos의 구현에서 금지되어 있습니다. 이 추가 포인트 요구 사항에서는 먼저 사용자가 리눅스와 마찬가지로 `stdin` 및 `stdout`을 닫을 수 있습니다. 즉, 프로세스는 `stdin`을 닫으면 입력값을 읽지 않아야 하며, 프로세스는 `stdout`을 닫으면 아무것도 인쇄해서는 안 됩니다.
+기본 Pintos 구현은 `stdin`과 `stdout`의 file descriptor를 닫지 못하게 합니다. 이 extra에서는 Linux처럼 `stdin`과 `stdout`도 닫을 수 있어야 합니다. `stdin`을 닫은 뒤에는 그 입력 경로로 읽을 수 없어야 하고, `stdout`을 닫은 뒤에는 그 출력 경로로 출력할 수 없어야 합니다.
 
-다음으로 `dup2` 시스템 호출을 실행하세요.
+다음으로 `dup2` system call을 구현하십시오.
 
 ------------------------------------------------------------------------
 
@@ -16,16 +16,15 @@
 int dup2(int oldfd, int newfd);
 ```
 
-> `dup2()` 시스템 콜은 파일 디스크립터 `oldfd`를 `newfd`에 지정한 번호로 복제하고, 성공하면 `newfd`를 반환합니다. `newfd`가 이미 열려 있었다면 재사용 전에 별도 알림 없이 닫습니다.
+> `dup2()`는 `oldfd`를 `newfd` 번호의 file descriptor로 복제합니다. 성공하면 `newfd`를 반환합니다. `newfd`가 이미 열려 있으면 재사용하기 전에 별도 오류 출력 없이 닫습니다.
 >
-> 다음 점 을 참고 하십시오.
+> 다음 두 경우에 주의하십시오.
 >
-> - `oldfd`이 유효한 파일 디스크립터가 아니면 실패해 `-1`을 반환하고 `newfd`을 닫지 않습니다.
+> - `oldfd`가 유효한 file descriptor가 아니면 `-1`를 반환하며 실패합니다. 이때 `newfd`는 닫지 않습니다.
+> - `oldfd`가 유효하고 `newfd`가 `oldfd`와 같으면 `dup2()`는 아무 작업도 하지 않고 `newfd`를 반환합니다.
 >
-> - `oldfd`이 유효한 파일 디스크립터이고 `newfd`이 `oldfd`과 같으면 `dup2()`는 아무 동작 없이 `newfd`을 반환합니다.
->
-> 이 시스템 콜이 성공한 뒤에는 이전 파일 디스크립터와 새 디스크립터를 서로 바꿔 사용해도 됩니다. 둘은 **다른 파일 디스크립터**이지만 **동일한 오픈 파일 설명에 참조하십시오.**이므로 *파일 오프셋*와 *상태 깃발*을 공유합니다. 예를 들어 하나에 `seek`를 적용해 파일 오프셋을 바꾸면 다른 디스크립터의 오프셋도 바뀝니다.
+> 성공한 뒤에는 두 descriptor를 같은 파일 접근에 사용할 수 있습니다. **서로 다른 file descriptor지만 같은 open file description을 가리키므로**, *file offset*과 *status flags*를 공유합니다. 예를 들어 한쪽에서 `seek`로 offset을 변경하면 다른 쪽의 offset도 함께 바뀝니다.
 
-참고로 `dup`ed 파일 디스크립터는 포킹 이후의 의미성을 보존해야 합니다.
+`dup`로 복제한 descriptor들의 공유 관계와 의미는 fork 이후에도 유지되어야 합니다.
 
-**크레딧을 얻기 위해 모든 테스트를 통과해야 합니다. 모든 것을 가져오거나 아무 것도 가져오지**
+**Extra의 모든 test case를 통과해야 추가 점수를 받습니다. 부분 점수는 없습니다.**

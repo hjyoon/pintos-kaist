@@ -1,19 +1,19 @@
-> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project3/cow.html) · 수집일: 2026-10-17 · [한국어 목차](../README.md)
+> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project3/cow.html) · 수집일: 2026-10-17 · 대조·교정: 2026-10-28 · [목차](../README.md)
 
 <a id="copy-on-write-extra"></a>
 
-# 쓰기 시 복사 (추가 과제)
+# Copy-on-Write — Extra
 
-**Pintos에 쓰기 시 복사(copy-on-write)를 구현하세요.**
+**Pintos에 copy-on-write를 구현하십시오.**
 
-쓰기 시 복사는 같은 물리 페이지를 공유해 복제 연산을 빠르게 하는 자원 관리 기법입니다. 일반적으로 여러 프로세스가 같은 자원을 사용하면 충돌을 막기 위해 각자 복사본을 가져야 합니다. 그러나 자원을 수정하지 않고 읽기만 한다면 물리 메모리에 여러 복사본을 둘 필요가 없습니다.
+copy-on-write는 같은 physical page를 공유해 자원 복제를 빠르게 하는 기법입니다. 여러 process가 같은 자원을 사용할 때는 보통 서로 간섭하지 않도록 각자의 복사본이 필요합니다. 하지만 읽기만 하고 수정하지 않는 동안에는 physical memory에 여러 복사본을 둘 이유가 없습니다.
 
-예를 들어 `fork`로 새 프로세스를 만든다고 합시다. 자식은 부모의 데이터를 자신의 가상 주소 공간으로 복제해 자원을 상속해야 합니다. 보통은 물리 페이지를 할당하고 프레임에 데이터를 쓴 뒤 페이지 테이블에 가상 주소에서 물리 주소로의 매핑을 추가합니다. 이 과정에는 상당한 시간이 들 수 있습니다.
+예를 들어 `fork`로 process를 만들면 child는 parent의 자원을 자신의 virtual address space로 복제해야 합니다. 일반적으로 physical page를 할당하고, frame에 데이터를 복사한 뒤, page table에 virtual-to-physical mapping을 추가합니다. 이 작업은 시간이 많이 들 수 있습니다.
 
-쓰기 시 복사에서는 복제 자원을 위한 새 물리 페이지를 즉시 할당하지 않습니다. 내용이 이미 물리 메모리에 있기 때문입니다. 대신 자식의 가상 주소 공간에 해당하는 가상 주소→물리 주소 매핑만 자식 페이지 테이블에 추가합니다. 부모와 자식은 같은 물리 페이지의 같은 데이터를 읽지만 서로 다른 가상 주소 공간으로 격리되며, 같은 프레임을 참조한다는 사실은 OS만 압니다. 둘 중 하나가 공유 자원을 수정하려 할 때에만 그 프로세스를 위한 새 물리 페이지와 독립적인 복사본을 만듭니다. 실제 복사는 최초 쓰기 시점까지 지연됩니다.
+copy-on-write에서는 내용이 이미 physical memory에 있으므로 새 physical page를 할당하지 않습니다. child의 page table에 같은 frame을 가리키는 mapping만 추가합니다. parent와 child는 서로 다른 virtual address space를 사용하지만 같은 physical page의 데이터를 공유하며, 이 사실은 OS만 관리합니다. 둘 중 하나가 공유 데이터를 수정하려 할 때 그 process를 위한 새 physical page를 만들고 복사합니다. 즉, 실제 복사는 최초 쓰기 시점까지 미룹니다.
 
-따라서 OS는 쓰기 시 복사 페이지에 대한 쓰기 시도를 감지할 수 있어야 합니다. 이를 위해 쓰기 보호(write-protect)를 사용합니다. 쓰기 접근에 페이지 폴트를 발생시키는 단순한 방식입니다. 메모리 관리 시스템의 지원을 이용해 해당 페이지를 쓰기 불가로 표시하면 구현할 수 있습니다.
+OS는 copy-on-write page에 대한 쓰기 시도를 감지해야 합니다. 이를 위해 write protection을 사용합니다. page를 writable이 아니도록 표시하여 쓰기 접근 시 page fault가 발생하게 하면 됩니다.
 
-**`fork`에 대한 쓰기 시 복사만 구현하면 됩니다**. 자식이 부모의 자원을 상속할 때에는 그 자원을 수정하려 하기 전까지 같은 물리 데이터를 참조할 수 있습니다. **쓰기 보호된 모든 페이지는 퇴거 대상이 될 수 있습니다.**
+**`fork`에 대해서만 copy-on-write를 구현하면 됩니다.** child가 parent의 자원을 상속할 때 바로 복사하지 않고 같은 physical data를 참조하다가 수정 시 분리할 수 있습니다. **Write-protected page도 모두 eviction 대상에 포함해야 합니다.**
 
-쓰기 시 복사에 대해서는 기본 테스트만 제공합니다. 가능한 모든 상황을 고려해야 합니다. 작은 힌트로, 파일 기반 페이지의 공유도 구현해야 합니다. 이 추가 과제는 공개되지 않은 테스트로도 채점합니다.
+copy-on-write에는 기본 test case만 제공합니다. 가능한 모든 상황을 직접 고려해야 합니다. 힌트를 하나 들면 file-backed page의 공유도 구현해야 합니다. 이 extra는 hidden test로도 채점합니다.

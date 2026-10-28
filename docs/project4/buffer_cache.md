@@ -1,27 +1,27 @@
-> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project4/buffer_cache.html) · 수집일: 2026-10-17 · [한국어 목차](../README.md)
+> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project4/buffer_cache.html) · 수집일: 2026-10-17 · 대조·교정: 2026-10-28 · [목차](../README.md)
 
 <a id="buffer-cache-extra-credit"></a>
 
-# 버퍼 캐시 (추가 점수)
+# Buffer Cache — 추가 점수
 
-파일 블록의 캐시를 유지하기 위해 파일 시스템을 수정하십시오. 블록을 읽거나 작성하도록 요청할 때, 블록이 캐쉬에 있는지 확인하고, 만약 그렇다면, 디스크에 접속하지 않고 캐쉬된 데이터를 사용하십시오. 그렇지 않으면 디스크에서 블록을 캐시로 가져와 필요하다면 오래된 항목을 제거하십시오. 크기가 64개의 섹터보다 크지 않은 캐쉬에 제한됩니다.
+file system이 file block을 cache하도록 수정하십시오. block 읽기·쓰기 요청이 들어오면 먼저 cache에 있는지 확인하고, 있다면 disk에 접근하지 않고 cache 데이터를 사용합니다. 없다면 disk에서 block을 읽어 오며, 필요하면 기존 entry를 evict합니다. **cache 크기는 최대 64 sectors입니다.**
 
-캐시 교체 알고리즘을 구현해야 합니다. 적어도 "시계" 알고리즘만큼 좋은 알고리즘입니다. 우리는 일반적으로 데이터에 비해 메타데이터의 가치가 더 높다는 것을 설명하도록 권장합니다. 접근된 정보, 더러운 정보 및 기타 정보의 조합이 디스크 접근 수에 의해 측정된 결과 최고의 성능을 얻을 수 있는 실험입니다.
+적어도 clock 알고리즘만큼 성능이 좋은 cache replacement algorithm을 구현해야 합니다. 보통 data보다 metadata의 가치가 높다는 점도 고려해 보십시오. accessed 정보, dirty 정보 등을 어떻게 조합해야 disk 접근 횟수를 가장 줄일 수 있는지 실험하십시오.
 
-원하는 경우 무료 매핑의 캐시된 복사본을 영구적으로 메모리에 보관할 수 있습니다. 캐시 크기에 비해서 계산할 필요는 없습니다.
+free map의 복사본을 memory에 상주시켜도 됩니다. 이는 cache 크기에 포함하지 않아도 됩니다.
 
-제공된 아이노드 코드는 `malloc()`로 할당된 "부unce buffer"를 사용하여 디스크의 섹터별 인터페이스를 시스템 호출 인터페이스의 바이트별 인터페이스로 변환합니다. 이 부팅 버퍼를 없애야 해 대신 **버퍼 캐시의 섹터로 직접 데이터를 복사하고 출력합니다.**
+제공된 inode 코드는 sector 단위의 disk interface를 byte 단위의 system call interface로 변환하기 위해 `malloc()`으로 할당한 bounce buffer를 사용합니다. 이 bounce buffer를 제거하고, **buffer cache의 sector에 데이터를 직접 복사해 넣거나 sector에서 직접 복사해 오십시오.**
 
-캐시의 경우 수정된 데이터를 즉시 디스크에 기록하는 대신, 더러운 블록을 캐시에 보관해야 합니다. 더러운 블록을 디스크에 쓸 때 마다 스크립트 백으로 인해 파일 시스템이 충돌에 직면해 더 취약해지기 때문에, 또한 당신은 주기적으로 모든 더러운, 캐시된 블록을 디스크로 다시 쓸 필요가 있습니다. 캐시는 또한 `filesys_done()`에서 디스크에 다시 작성되어야 함으로써 Pintos를 중지하면 캐시가 빨려집니다.
+cache는 write-behind 방식이어야 합니다. 변경된 데이터를 곧바로 disk에 쓰지 않고 dirty block으로 cache에 보관했다가, evict할 때 disk에 기록합니다. write-behind는 비정상 종료 시 데이터 손실 위험을 높이므로, cache에 있는 모든 dirty block을 주기적으로 disk에 기록하는 기능도 필요합니다. Pintos가 종료될 때도 cache를 flush할 수 있도록 `filesys_done()`에서 남은 데이터를 기록해야 합니다.
 
-첫 번째 프로젝트에서 작동하는 `timer_sleep()`을 가지고 있다면, 뒤에 쓰는 것은 훌륭한 응용 프로그램입니다. 그렇지 않으면, 덜 일반적인 시설을 구현할 수 있지만 바쁜 기다림이 나타나지 않도록하십시오.
+첫 프로젝트의 `timer_sleep()`가 동작한다면 write-behind에 활용하기 좋습니다. 그렇지 않으면 더 단순한 전용 기능을 구현해도 되지만, busy waiting을 사용해서는 안 됩니다.
 
-또한 리드 어드 (read-ahead) 를 구현해야 합니다. 즉, 해당 블록이 읽기 직전에 있는 경우 파일의 한 블록이 읽을 때 자동으로 파일의 다음 블록을 캐시로 가져가야 합니다. 앞을 읽는 것은 아싱크로노로 할 때만 유용합니다. 즉, 프로세스가 파일에서 디스크 블록 1을 요청하면 디스크 블록 1이 입력될 때까지 차단해야 하지만 그 읽기 완료되면 컨트롤은 즉시 프로세스로 돌아가야 합니다. 디스크 블록 2에 대한 사전 읽기 요청은 백그라운드에서 비동기적으로 처리되어야 합니다. 이를 위해 IO에 대한 전용 스레드를 만들어야 할 수도 있습니다. 디스크 IO가 필요할 때, 스레드는 요청을 전용에 전달합니다.
+read-ahead도 구현해야 합니다. 파일의 한 block을 읽으면 다음에 읽힐 가능성이 있는 block을 자동으로 cache에 가져오는 기능입니다. read-ahead는 비동기로 처리해야 실질적인 효과가 있습니다. 예를 들어 process가 파일의 disk block 1을 요청하면 block 1을 읽을 때까지는 기다리되, 읽기가 끝나는 즉시 process로 제어를 돌려주어야 합니다. block 2의 read-ahead는 background에서 비동기로 처리합니다. 이를 위해 I/O 전용 thread를 만들고, disk I/O가 필요할 때 그 thread로 요청을 넘기는 방법을 사용할 수 있습니다.
 
 <a id="hint-for-implementation"></a>
 
 ## 구현 힌트
 
-리눅스처럼 가상 메모리 하위 시스템을 통해 이 기능을 구현할 수 있습니다. 새로운 vm 타입 (예를 들어 "pagecache") 를 도입하고 `swap_in`, `swap_out`, 그리고 `destroy` 인터페이스를 통해 버퍼 캐시를 관리할 수 있습니다. 이 디자인을 선택하면 SECTOR_SIZE granularity보다는 PAGE_SIZE granularity로 캐시를 관리할 수 있습니다. 파일 백업 페이지의 동기화 문제에서는 mmaped 영역을 캐시로 사용할 수 있습니다.
+Linux처럼 virtual memory subsystem을 통해 이 기능을 구현할 수도 있습니다. 예를 들어 pagecache라는 새 VM type을 도입하고 `swap_in`, `swap_out`, `destroy` interface로 buffer cache를 관리하는 방식입니다. 이 설계를 선택하면 SECTOR_SIZE 대신 PAGE_SIZE 단위로 cache를 관리할 수 있습니다. file-backed page의 synchronization에는 mmap으로 map한 영역을 cache로 활용하는 방법도 고려할 수 있습니다.
 
-**우리는 캐시를 초기 설계에 통합하는 것을 권장합니다.** 과거에는 많은 그룹들이 디자인 과정의 후반에 캐시를 디자인에 접목하려고 시도했습니다. 이것은 매우 어려운 일입니다. 이러한 그룹들은 대부분 또는 모든 시험에 실패한 프로젝트를 종종 제출했습니다.
+**설계 초기부터 cache를 통합하는 것을 권장합니다.** 과거에는 구현을 거의 마친 뒤 cache를 덧붙이려는 팀이 많았습니다. 이렇게 작업하면 매우 어렵고, 테스트 대부분이나 전부를 통과하지 못한 사례도 많았습니다.

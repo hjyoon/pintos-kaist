@@ -1,18 +1,18 @@
-> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project3/stack_growth.html) · 수집일: 2026-10-17 · [한국어 목차](../README.md)
+> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project3/stack_growth.html) · 수집일: 2026-10-17 · 대조·교정: 2026-10-28 · [목차](../README.md)
 
 <a id="stack-growth"></a>
 
-# 스택 확장
+# Stack Growth
 
-프로젝트 2에서 스택은 `USER_STACK`에서 시작하는 한 페이지였고 프로그램 실행도 그 크기에 제한됐습니다. 이제 스택이 현재 크기를 넘어서 확장되면 필요한 만큼 추가 페이지를 할당합니다.
+Project 2의 stack은 `USER_STACK`에서 시작하는 한 page로 고정되어 프로그램 실행도 그 크기에 제한되었습니다. 이제 현재 크기를 넘어 확장되면 필요한 page를 추가로 할당합니다.
 
-스택 접근으로 보이는 경우에만 추가 페이지를 할당하세요. 스택 접근과 그 밖의 접근을 구별하는 휴리스틱을 설계하세요.
+모든 잘못된 접근에 page를 추가해서는 안 됩니다. stack 접근으로 보이는 경우에만 확장하도록, 다른 memory 접근과 구분할 heuristic을 설계하십시오.
 
-일반적인 실제 OS는 언제든 프로세스를 중단하고 스택의 데이터를 수정하는 시그널을 전달할 수 있으므로, 유저 프로그램이 스택 포인터보다 낮은 곳에 데이터를 쓰면 문제가 될 수 있습니다. 다만 x86-64 PUSH 명령은 스택 포인터를 변경하기 전에 접근 권한을 확인하므로 스택 포인터보다 8바이트 낮은 주소에서 페이지 폴트를 일으킬 수 있습니다.
+일반적인 실제 OS는 언제든 signal을 전달하면서 stack 내용을 수정할 수 있으므로, 프로그램이 stack pointer 아래에 임의로 쓰는 것은 잘못된 동작입니다. 다만 x86-64의 PUSH 명령은 stack pointer를 조정하기 전에 접근 권한을 검사하므로, 현재 stack pointer보다 8 bytes 아래에서 page fault가 발생할 수 있습니다.
 
-유저 프로그램의 현재 스택 포인터 값을 가져올 수 있어야 합니다. 시스템 콜이나 유저 프로그램이 발생시킨 페이지 폴트에서는 각각 `syscall_handler()` 또는 `page_fault()`에 전달된 `struct intr_frame`의 `rsp` 멤버에서 읽을 수 있습니다. 잘못된 메모리 접근을 페이지 폴트로 감지하는 방식을 쓴다면 커널에서 페이지 폴트가 발생하는 경우도 처리해야 합니다. 프로세서는 예외로 인해 유저 모드에서 커널 모드로 전환할 때에만 스택 포인터를 저장하므로, 커널 폴트에서 `page_fault()`에 전달된 `struct intr_frame`의 `rsp`를 읽으면 유저 스택 포인터가 아닌 미정의 값을 얻게 됩니다. 최초 유저→커널 전환 시 rsp를 `struct thread`에 저장하는 등의 별도 방법이 필요합니다.
+현재 user stack pointer를 얻을 수 있어야 합니다. system call에서는 `syscall_handler()`에, user program의 page fault에서는 `page_fault()`에 전달된 `struct intr_frame`의 `rsp` member를 읽으면 됩니다. invalid access 판별에 page fault를 활용한다면 kernel 안에서 발생하는 fault도 고려해야 합니다. processor는 exception이 user mode에서 kernel mode로 전환시킬 때만 user stack pointer를 저장하므로, kernel fault에서 `page_fault()`에 전달된 `struct intr_frame`의 `rsp`를 읽어도 user stack pointer를 얻을 수 없습니다. user→kernel 진입 시 rsp를 `struct thread`에 저장하는 등 별도 방법을 마련하십시오.
 
-**스택 확장 기능을 구현하세요.** 먼저 `vm/vm.c`의 `vm_try_handle_fault`를 수정해 스택 확장이 필요한지 판단하세요. 스택 확장으로 판단했다면 `vm/vm.c`의 `vm_stack_growth`를 호출해 스택을 늘려야 합니다. `vm_stack_growth`을 구현하세요.
+**Stack growth를 구현하십시오.** 먼저 `vm/vm.c`의 `vm_try_handle_fault`가 stack 확장이 필요한 경우를 판별하도록 수정합니다. 확장으로 처리할 수 있으면 `vm/vm.c`의 `vm_stack_growth`를 호출합니다. `vm_stack_growth`를 구현하십시오.
 
 ------------------------------------------------------------------------
 
@@ -21,7 +21,7 @@ bool vm_try_handle_fault (struct intr_frame *f, void *addr,
     bool user, bool write, bool not_present);
 ```
 
-> 이 함수는 페이지 폴트 예외를 처리하는 동안 `userprog/exception.c`의 `page_fault`에서 호출합니다. 폴트가 스택 확장으로 처리할 수 있는 유효한 경우인지 검사해야 합니다. 그렇다면 폴트 주소를 인자로 `vm_stack_growth`를 호출하세요.
+> `userprog/exception.c`의 `page_fault`가 page fault를 처리하는 동안 호출하는 경로입니다. stack growth로 처리할 수 있는 유효한 fault인지 확인한 뒤 해당하면 fault address를 `vm_stack_growth`에 전달하십시오.
 
 ------------------------------------------------------------------------
 
@@ -29,8 +29,8 @@ bool vm_try_handle_fault (struct intr_frame *f, void *addr,
 void vm_stack_growth (void *addr);
 ```
 
-> 익명 페이지를 하나 이상 할당해 `addr`에서 더 이상 폴트가 나지 않도록 스택 크기를 늘립니다. 할당할 때에는 `addr`를 PGSIZE 경계로 내림 정렬해야 합니다.
+> 하나 이상의 anonymous page를 할당해 `addr`에 더 이상 fault가 발생하지 않도록 stack을 확장합니다. 할당할 때 `addr`를 PGSIZE 경계로 내림 정렬해야 합니다.
 
-대부분의 OS에는 스택 크기의 절대 상한이 있습니다. 여러 Unix 시스템의 `ulimit` 명령처럼 사용자가 상한을 조정할 수 있는 OS도 있습니다. 많은 GNU/Linux 시스템의 기본 상한은 8 MB입니다. 이 프로젝트에서는 스택 크기를 최대 1 MB로 제한하세요.
+대부분의 OS는 stack 크기에 상한을 둡니다. 여러 Unix의 `ulimit`처럼 사용자가 조절할 수 있는 경우도 있습니다. GNU/Linux에서는 기본값이 8 MB인 경우가 많지만, **이 프로젝트의 최대 stack 크기는 1 MB**로 제한해야 합니다.
 
-이제 모든 스택 확장 테스트가 통과해야 합니다.
+이제 모든 stack-growth 테스트가 통과해야 합니다.

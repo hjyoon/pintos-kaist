@@ -1,17 +1,17 @@
-> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project3/paging.md) · 수집일: 2026-10-17 · [한국어 목차](../README.md)
+> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project3/paging.md) · 수집일: 2026-10-17 · 대조·교정: 2026-10-28 · [목차](../README.md)
 
 <a id="paging"></a>
 
-# 페이징
+# Paging
 
-실행 파일에서 로드된 세그먼트의 페이징을 구현합니다. 이 모든 페이지는 느리게 로드되어야 합니다. 즉, 커널이 페이지 폴트를 감지할 때만. 추방 시, 로드 이후 수정된 페이지 (예를 들어 "더티 비트"로 표시된 바와 같이) 를 교환하기 위해 작성해야 합니다. 수정되지 않은 페이지, 읽기 전용 페이지를 포함하여 항상 실행 가능한에서 다시 읽을 수 있기 때문에 교환하기 위해 작성되어서는 안됩니다.
+executable에서 load하는 segment에 paging을 구현하십시오. page는 모두 lazy loading으로, 해당 page의 fault가 발생할 때만 실제 내용을 적재해야 합니다. eviction 시 loading 이후 변경된 page는 dirty bit 등을 확인하여 swap에 기록해야 합니다. read-only page를 포함해 수정하지 않은 page는 executable에서 다시 읽을 수 있으므로 swap에 기록해서는 안 됩니다.
 
-LRU에 근접하는 글로벌 페이지 교체 알고리즘을 구현합니다. 당신의 알고리즘은 "제2 기회" 또는 "시계" 알고리즘의 간단한 변형과 적어도 잘 작동해야 합니다.
+LRU에 근접하는 global page replacement algorithm을 구현하십시오. 최소한 단순한 second-chance 또는 clock 알고리즘만큼의 성능을 내야 합니다.
 
-당신의 디자인은 평행성을 허용해야 합니다. 한 페이지 폴트가 I/O가 필요한 경우, 그 동안 오류가 없는 프로세스는 계속 실행되어야 하며, I/O가 필요하지 않은 다른 페이지 폴트는 완료될 수 있어야 합니다. 이것은 약간의 동기화 노력이 필요할 것입니다.
+설계는 parallelism을 허용해야 합니다. 한 page fault가 I/O를 기다리는 동안에도 fault가 없는 process는 계속 실행되고, I/O가 필요 없는 다른 page fault는 처리될 수 있어야 합니다. 이를 위한 synchronization이 필요합니다.
 
-프로그램 로더의 핵심은 '`userprog/process.c`'에 있는 `load_segment()`의 루프입니다. 루프를 돌아가는 때마다, `page_read_bytes`는 실행 파일에서 읽을 바이트의 숫자를 수신하고, `page_zero_bytes`는 바이트를 읽은 후에 0으로 초기화 할 바이트의 숫자를 수신합니다. 이 둘은 항상 `PGSIZE` (4,096) 에 합당한다. 페이지의 처리 방식은 이 변수의 값에 달려 있습니다.
+program loader의 핵심인 `userprog/process.c`의 `load_segment()` loop를 수정해야 합니다. 각 반복에서 `page_read_bytes`는 executable에서 읽을 byte 수이고, `page_zero_bytes`는 그 뒤를 0으로 채울 byte 수입니다. 합은 항상 `PGSIZE`, 즉 4,096입니다. 값에 따라 다음처럼 처리합니다.
 
-- `page_read_bytes`가 `PGSIZE`에 해당하는 경우, 페이지는 첫 번째 접근 시 기본 파일에서 페이지를 요구해야합니다.
-- `page_zero_bytes`가 `PGSIZE`과 같으면 페이지가 모두 0이기 때문에 디스크에서 읽을 필요가 없습니다. 첫 페이지 폴트에서 모든 제로로 구성된 새로운 페이지를 생성하여 그러한 페이지를 처리해야합니다.
-- 그렇지 않으면 `page_read_bytes` 또는 `page_zero_bytes`은 `PGSIZE`과 같지 않습니다. 이 경우, 페이지의 초기 부분은 기본 파일에서 읽어야 하며 나머지 부분은 제로화됩니다.
+- `page_read_bytes`가 `PGSIZE`이면 최초 접근 시 원본 파일에서 demand paging합니다.
+- `page_zero_bytes`가 `PGSIZE`이면 내용이 전부 0이므로 disk를 읽지 않습니다. 최초 fault에서 0으로 채운 새 page를 만드십시오.
+- `page_read_bytes`와 `page_zero_bytes` 어느 쪽도 `PGSIZE`가 아니면 page의 앞부분은 파일에서 읽고 나머지는 0으로 채웁니다.

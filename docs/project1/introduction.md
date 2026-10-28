@@ -1,10 +1,10 @@
-> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project1/introduction.html) · 수집일: 2026-10-17 · [한국어 목차](../README.md)
+> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project1/introduction.html) · 수집일: 2026-10-17 · 대조·교정: 2026-10-28 · [목차](../README.md)
 
 <a id="project1-threads"></a>
 
-# 프로젝트 1: 스레드
+# Project 1: Threads
 
-이 작업에서는 최소한의 기능적인 스레드 시스템을 제공합니다. 여러분의 임무는 이 시스템의 기능을 확장하여 동기화 문제를 더 잘 이해하는 것입니다. 이 임무를 위해 당신은 주로 `threads` 디렉토리에 작업할 것이고, 옆에는 `devices` 디렉토리에 약간의 작업이 있을 것이다. 컴파일은 `threads` 디렉토리에서 수행되어야 합니다. 이 프로젝트 설명서를 읽기 전에 적어도 [동기화](../appendix/synchronization.md)의 자료를 스카이밍해야 합니다.
+이 과제에서는 최소한의 기능만 갖춘 thread system을 제공합니다. synchronization 문제를 더 잘 이해할 수 있도록 이 시스템의 기능을 확장하는 것이 목표입니다. 주로 `threads`에서 작업하고, 일부 코드는 `devices`에서 수정합니다. 컴파일은 `threads` directory에서 수행하십시오. 과제 설명을 읽기 전에 [Synchronization](../appendix/synchronization.md)을 적어도 한 번 훑어보십시오.
 
 <a id="background"></a>
 
@@ -12,27 +12,27 @@
 
 <a id="understanding-threads"></a>
 
-### 스레드 이해하기
+### Thread 이해하기
 
-첫 번째 단계는 초기 스레드 시스템의 코드를 읽고 이해하는 것입니다. Pintos는 이미 스레드 생성 및 스레드 완료, 스레드 사이의 전환을위한 간단한 스케줄러 및 동기화 원시 (세마포어, 잠금, 상태 변수 및 최적화 장벽) 를 구현합니다.
+먼저 초기 thread system 코드를 읽고 이해하십시오. Pintos는 이미 thread의 생성과 종료, thread 사이를 전환하는 간단한 scheduler, 그리고 semaphore·lock·condition variable·optimization barrier 등의 synchronization primitive를 제공합니다.
 
-이 코드 중 일부는 약간 신비한 것처럼 보일 수 있습니다. 만약 당신이 이미 [소개](../introduction/getting_started.md)에서 설명한 바와 같이 기본 시스템을 컴파일하고 실행하지 않았다면 지금 당장 해야 합니다. 소스 코드 일부를 읽고 무슨 일이 일어나고 있는지 알 수 있습니다. 원하는 경우 거의 어디서든 `printf()`에 호출을 추가하고, 다시 컴파일하고 실행하여 어떤 순서로 일어나는지 확인할 수 있습니다. 당신은 또한 디버거에서 커널을 실행하고 흥미로운 장소에서 브레이크포인트를 설정할 수 있습니다. 코드를 한 단계로 통과하고 데이터를 검사하고, 그리고 그 밖의.
+처음에는 일부 코드가 이해하기 어려울 수 있습니다. [시작하기](../introduction/getting_started.md)에 따라 기본 시스템을 빌드하고 실행하지 않았다면 지금 해 보십시오. 소스를 따라가며 동작을 살펴보고, 필요하면 여러 위치에 `printf()`를 추가한 뒤 다시 컴파일·실행해 실행 순서를 확인할 수 있습니다. debugger에서 kernel을 실행하며 breakpoint를 걸거나, 코드를 한 단계씩 실행하고 데이터를 조사해도 됩니다.
 
-스레드가 생성되면 스케줄을 잡기 위한 새로운 컨텍스트를 생성합니다. 이 맥락에서 thread_create에 대한 논쟁으로 실행할 수 있는 함수를 제공합니다. 스레드가 처음 계획되고 실행되면 그 함수의 시작에서 시작되고 그 맥락에서 실행됩니다. 함수가 반환되면 스레드가 종료됩니다. 따라서 각 스레드는 Pintos 내부에서 실행되는 미니프로그램처럼 동작하며, `thread_create()`에 전달된 함수은 `main()`처럼 동작합니다.
+thread 생성은 scheduler가 실행할 새로운 context를 만드는 일입니다. thread_create()의 argument로 이 context에서 실행할 함수를 전달합니다. thread가 처음 scheduling되어 실행될 때 그 함수의 첫 부분부터 시작하며, 함수가 반환되면 thread가 종료됩니다. 따라서 각 thread는 Pintos 안에서 실행되는 작은 프로그램과 비슷하고, `thread_create()`에 전달한 함수는 그 프로그램의 `main()` 역할을 합니다.
 
-어느 순간에도, 정확히 한 개의 스레드가 실행되고 나머지 스레드가, 만약 하나 있다면, 비활성화됩니다. 스케줄러가 다음으로 어떤 스레드를 실행할지 결정합니다. (어떤 시간에 실행할 준비가 되어 있지 않은 경우 `idle()`에서 구현된 특수 *비활성* 스레드가 실행됩니다.) 동기화 원시들은 하나의 스레드가 다른 스레드가 무언가를 수행하기 위해 기다려야 할 때 컨텍스트 스위치를 강요할 수 있습니다.
+어느 순간이든 실행되는 thread는 정확히 하나이고, 나머지는 실행되지 않는 상태입니다. 다음 thread는 scheduler가 선택합니다. 실행 가능한 thread가 하나도 없으면 `idle()`에 구현된 특별한 *idle* thread가 실행됩니다. 한 thread가 다른 thread의 작업을 기다려야 할 때 synchronization primitive가 context switch를 일으킬 수 있습니다.
 
-컨텍스트 스위치의 메커니즘은 `thread_launch()`에서 `threads/thread.c`에 있습니다.
+context switch의 세부 동작은 `threads/thread.c`의 `thread_launch()`에 구현되어 있습니다. 이 코드를 자세히 이해할 필요는 없습니다. 현재 thread의 상태를 저장하고 다음 thread의 상태를 복원하는 코드입니다.
 
-GDB 디버거를 사용하여 맥락 스위치를 통해 천천히 추적하여 무슨 일이 일어나는지 확인하십시오 ([GDB](introduction.md) 참조). 시작하기 위해 `schedule()`에 브레이크포인트를 설정하고, 거기서 한 단계로 이동할 수 있습니다. 각 스레드의 주소와 상태를 추적하고 각 스레드의 호출 스택에 어떤 절차가 있는지 확인하십시오. 한 스레드가 `iret`을 `do_iret()`에서 실행할 때 다른 스레드가 실행되기 시작합니다.
+[GDB](../appendix/debugging_tools.md#gdb)로 context switch를 천천히 따라가 보십시오. `schedule()`에 breakpoint를 건 뒤 single-step으로 진행하면 됩니다. 각 thread의 주소와 상태, call stack에 있는 함수들을 추적하십시오. 한 thread가 `do_iret()`에서 `iret`를 실행하면 다른 thread가 실행되기 시작하는 모습을 볼 수 있습니다.
 
-**경고**: Pintos에서 각 스레드는 크기가 4kB 미만인 작은 고정 크기의 실행 스택을 부여받습니다. 커널은 스택 오버플로우를 감지하려고 하지만 완벽하게 할 수 없습니다. 여러분이 큰 데이터 구조를 비정형적인 로컬 변수로 선언하면 신비한 커널 공황과 같은 이상한 문제를 일으킬 수 있습니다. `int buf[1000];`. 스택 할당의 대안은 페이지 할당자와 블록 할당자를 포함한다 ([메모리 분배](../appendix/memory_allocation.md) 참조).
+**주의:** Pintos는 thread마다 4 kB보다 약간 작은 고정 크기의 execution stack을 할당합니다. kernel이 stack overflow를 탐지하려고 하지만 완벽하지는 않습니다. `int buf[1000];`처럼 큰 자료구조를 non-static local variable로 선언하면 원인을 알기 어려운 kernel panic 등이 발생할 수 있습니다. stack 대신 page allocator나 block allocator를 사용할 수 있습니다. [Memory Allocation](../appendix/memory_allocation.md)을 참조하십시오.
 
 <a id="source-files"></a>
 
 ### 소스 파일
 
-다음은 `threads` 및 `include/threads` 디렉토리의 파일에 대한 간략한 개요입니다. 이 코드의 대부분을 수정할 필요는 없지만, 이 개요를 제시하면 어떤 코드를 살펴볼 수 있는지에 대해 시작할 수 있을 것으로 기대됩니다.
+다음은 `threads`와 `include/threads` directory의 파일들을 간단히 정리한 것입니다. 대부분을 수정할 필요는 없지만, 어떤 코드를 살펴봐야 하는지 판단하는 데 도움이 됩니다.
 
 <a id="threads-codes"></a>
 
@@ -40,176 +40,176 @@ GDB 디버거를 사용하여 맥락 스위치를 통해 천천히 추적하여 
 
 - `loader.S`, `loader.h`
 
-  커널 로더입니다. PC BIOS가 메모리에 적재하는 512바이트의 코드와 데이터로 어셈블됩니다. 로더는 디스크에서 커널을 찾아 메모리에 적재하고 `start.S`의 `bootstrap()`로 점프합니다. 이 코드는 살펴보거나 수정할 필요가 없습니다. `start.S`는 메모리 보호를 위한 기본 설정을 하고 64비트 롱 모드로 전환합니다. 로더와 달리 이 코드는 실제 커널의 일부입니다.
+  kernel loader입니다. PC BIOS가 memory에 적재하는 512 bytes의 code와 data로 assemble됩니다. loader는 disk의 kernel을 찾아 memory로 읽은 뒤 `start.S`의 `bootstrap()`으로 이동합니다. 보통 이 코드를 살펴보거나 수정할 필요는 없습니다. `start.S`는 memory protection에 필요한 초기 설정을 하고 64-bit long mode로 전환합니다. loader와 달리 이 코드는 kernel 자체에 포함됩니다.
 
 - `kernel.lds.S`
 
-  커널을 연결하기 위해 사용된 링크 스크립트 커널의 로드 주소를 설정하고 커널 이미지의 시작에 가까운 `start.S`을 설정합니다. 다시 말하지만, 이 코드를 보거나 수정할 필요가 없습니다. 궁금하다면 여기 있습니다.
+  kernel을 link할 때 사용하는 linker script입니다. kernel의 load address를 정하고 `start.S`를 kernel image의 앞부분에 배치합니다. 보통 수정할 필요는 없지만 궁금하면 살펴보십시오.
 
 - `init.c`, `init.h`
 
-  커널 초기화 코드로, 커널의 `main program.`인 `main()`를 포함합니다. 적어도 무엇을 초기화하는지는 알 수 있도록 `main()`를 살펴보세요. 여기에 자신의 초기화 코드를 추가할 수 있습니다.
+  kernel 초기화 코드입니다. kernel의 `main program.`인 `main()`도 포함합니다. 적어도 `main()`을 읽어 무엇이 초기화되는지 확인하십시오. 자신의 초기화 코드를 추가할 수도 있습니다.
 
 - `thread.c`, `thread.h`
 
-  기본 스레드 지원 여러분의 많은 작업은 이 파일에서 이루어질 것입니다. `thread.h`는 구조 스레드를 정의합니다. 자세한 내용은 [밧줄](../appendix/threads.md) 문서를 참조하십시오.
+  기본 thread 기능을 제공합니다. 많은 작업을 이 파일들에서 수행하게 됩니다. `thread.h`에는 네 프로젝트에 걸쳐 수정하게 될 struct thread가 정의되어 있습니다. 자세한 내용은 [Threads](../appendix/threads.md)를 참조하십시오.
 
 - `palloc.c`, `palloc.h`
 
-  페이지 할당기, 4kB 페이지의 복수에서 시스템 메모리를 배포합니다. 자세한 내용은 [페이지 할당자](../appendix/memory_allocation.md#page-allocator) 문서를 참조하십시오.
+  system memory를 4 kB page의 배수 단위로 할당하는 page allocator입니다. [Page Allocator](../appendix/memory_allocation.md#page-allocator)를 참조하십시오.
 
 - `malloc.c`, `malloc.h`
 
-  커널에 대한 `malloc()` 및 `free()`의 간단한 구현 자세한 내용은 [블록 할당자](../appendix/memory_allocation.md#block-allocator) 문서를 참조하십시오.
+  kernel용 `malloc()`과 `free()`의 간단한 구현입니다. [Block Allocator](../appendix/memory_allocation.md#block-allocator)를 참조하십시오.
 
 - `interrupt.c`, `interrupt.h`
 
-  기본 인터럽트 핸들링 및 인터럽트를 켜고 끄는 함수
+  기본 interrupt 처리와 interrupt를 켜고 끄는 함수들입니다.
 
 - `intr-stubs.S`, `intr-stubs.h`
 
-  낮은 수준의 인터럽트 처리용 어셈블리 코드
+  low-level interrupt 처리를 위한 assembly 코드입니다.
 
 - `synch.c`, `synch.h`
 
-  기본 동기화 원시: 세마포어, 잠금, 상태 변수 및 최적화 장벽. 네 프로젝트 모두에서 동기화를 위해 이것을 사용해야 합니다. 자세한 내용은 [동기화](../appendix/synchronization.md) 문서를 참조하십시오.
+  semaphore, lock, condition variable, optimization barrier 등 기본 synchronization primitive입니다. 네 프로젝트 모두에서 synchronization을 위해 사용합니다. [Synchronization](../appendix/synchronization.md)을 참조하십시오.
 
 - `mmu.c`, `mmu.h`
 
-  x86-64 페이지 테이블 동작의 함수 실험실 1 후에 이 파일을 더 자세히 살펴볼게요.
+  x86-64 page table을 조작하는 함수들입니다. Project 1 이후 자세히 살펴보게 됩니다.
 
 - `io.h`
 
-  I/O 포트 접근 함수 이것은 주로 `devices` 디렉토리의 소스 코드로 사용되며, 당신은 만질 필요가 없습니다.
+  I/O port에 접근하는 함수들입니다. 주로 직접 수정할 필요가 없는 `devices`의 코드에서 사용합니다.
 
 - `vaddr.h`, `pte.h`
 
-  가상 주소 및 페이지 테이블 항목과 함께 작업하는 함수 및 매크로 이 부분은 프로젝트 3에서 더 중요해집니다. 지금은 무시할 수 있어요
+  virtual address와 page table entry를 다루는 함수·macro입니다. Project 3에서 중요해지므로 지금은 넘어가도 됩니다.
 
 - `flags.h`
 
-  x86-64 `flags` 레지스터에서 몇 비트를 정의하는 매크로 아무 관심도 없지
+  x86-64 `flags` register의 일부 bit를 정의하는 macro입니다. 보통 자세히 살펴볼 필요는 없습니다.
 
 <a id="devices-codes"></a>
 
 #### `devices` 코드
 
-기본 스레드 커널은 또한 `devices` 디렉토리에서 다음 파일을 포함합니다:
+기본 threaded kernel에는 `devices`의 다음 파일들도 포함됩니다.
 
 - `timer.c`, `timer.h`
 
-  시스템 타이머는 기본적으로 초당 100번 틱합니다. 이 프로젝트에서 이 코드를 수정할 것입니다.
+  기본적으로 초당 100번 tick하는 system timer입니다. 이번 프로젝트에서 수정합니다.
 
 - `vga.c`, `vga.h`
 
-  VGA 디스플레이 드라이버 화면에 텍스트를 작성하는 책임이 있습니다. 당신은 이 코드를 볼 필요가 없습니다. `printf()`는 VGA 디스플레이 드라이버에 호출합니다. 그래서 이 코드를 직접 호출할 이유가 거의 없습니다.
+  화면에 text를 출력하는 VGA display driver입니다. `printf()`가 대신 호출하므로 보통 직접 살펴보거나 호출할 필요가 없습니다.
 
 - `serial.c`, `serial.h`
 
-  시리즈 포트 드라이버 다시 말하지만, `printf()`은 당신을 위해 이 코드를 호출합니다, 그래서 당신은 그것을 직접 할 필요가 없습니다. 그것은 입력 계층에 전달함으로써 일련의 입력을 처리한다 (아래 참조).
+  serial port driver입니다. 이것도 `printf()`가 대신 호출하므로 직접 사용할 필요는 없습니다. serial 입력은 아래의 input layer로 전달합니다.
 
 - `block.c`, `block.h`
 
-  블록 장치에 대한 추상층, 즉 고정 크기의 블록의 배열으로 조직된 무작위 접근, 디스크와 같은 장치입니다. 박스 밖으로, Pintos는 두 종류의 블록 장치를 지원합니다: IDE 디스크와 파티션. 블록 장치의 종류와 상관없이, 실제로 프로젝트 2까지 사용되지 않습니다.
+  block device의 abstraction layer입니다. block device는 크기가 일정한 block의 배열로 구성된, disk처럼 random access가 가능한 장치입니다. 기본 Pintos는 IDE disk와 partition 두 종류를 지원합니다. 실제 block device 사용은 Project 2부터 시작합니다.
 
 - `ide.c`, `ide.h`
 
-  최대 4 개의 IDE 디스크에서 읽기 및 쓰기 섹터를 지원합니다.
+  최대 4개의 IDE disk에서 sector를 읽고 쓰는 기능을 제공합니다.
 
 - `partition.c`, `partition.h`
 
-  디스크의 파티션 구조를 이해하고, 단일 디스크가 독립적으로 사용할 수 있는 여러 영역 (파티션) 로 나눌 수 있습니다.
+  disk의 partition 구조를 해석해 하나의 disk를 독립적으로 사용할 여러 영역, 즉 partition으로 나눌 수 있게 합니다.
 
 - `kbd.c`, `kbd.h`
 
-  키보드 드라이버 입력 계층에 전달하는 키스트림을 처리합니다 ( 아래에 참조하십시오).
+  keyboard driver입니다. key 입력을 아래의 input layer로 전달합니다.
 
 - `input.c`, `input.h`
 
-  입력층 키보드 또는 일련 드라이버에 의해 전달되는 입력 문자 행렬
+  keyboard나 serial driver가 전달한 입력 문자를 queue에 보관하는 input layer입니다.
 
 - `intq.c`, `intq.h`
 
-  인터럽트 큐, 커널 스레드와 인터럽트 핸들러 모두 접근하려는 순환 큐를 관리하기 위해. 키보드와 일련 드라이버에 의해 사용됩니다.
+  kernel thread와 interrupt handler가 함께 접근하는 circular queue를 관리하는 interrupt queue입니다. keyboard와 serial driver에서 사용합니다.
 
 - `rtc.c`, `rtc.h`
 
-  실시간 시계 드라이버, 커널이 현재 날짜와 시간을 결정할 수 있도록 합니다. 기본적으로, 이것은 `thread/init.c`에 의해 무작위 숫자 생성기에 대한 초기 씨앗을 선택하는 데만 사용됩니다.
+  kernel이 현재 날짜와 시간을 알 수 있게 하는 real-time clock driver입니다. 기본적으로는 `thread/init.c`가 random number generator의 초기 seed를 정할 때만 사용합니다.
 
 - `speaker.c`, `speaker.h`
 
-  컴퓨터 스피커에서 음원을 생성할 수 있는 드라이버
+  PC speaker에서 음을 내는 driver입니다.
 
 - `pit.c`, `pit.h`
 
-  8254 프로그래밍 가능한 인터럽트 타이머를 구성하기 위한 코드 이 코드는 `devices/timer.c` 및 `devices/speaker.c` 모두 사용하므로 각 장치는 PIT의 출력 채널 중 하나를 사용합니다.
+  8254 Programmable Interrupt Timer를 설정합니다. `devices/timer.c`와 `devices/speaker.c`가 각각 PIT의 output channel 하나를 사용하므로 이 코드를 함께 이용합니다.
 
 <a id="lib-codes"></a>
 
 #### `lib` 코드
 
-마지막으로, `lib` 및 `lib/kernel`에는 유용한 라이브러리 루틴이 포함되어 있습니다. (`lib/user`는 프로젝트 2에서 시작하여 사용자 프로그램에서 사용되지만 커널의 일부가 아닙니다.)
+마지막으로 `lib`와 `lib/kernel`에는 유용한 library 함수들이 있습니다. `lib/user`는 Project 2부터 user program에서 사용하며 kernel에는 포함되지 않습니다. 주요 구성은 다음과 같습니다.
 
 - `ctype.h`, `inttypes.h`, `limits.h`, `stdarg.h`, `stdbool.h`, `stddef.h`, `stdint.h`, `stdio.c`, `stdio.h`, `stdlib.c`, `stdlib.h`, `string.c`, `string.h`
 
-  표준 C 라이브러리의 하위 집합
+  표준 C library의 일부입니다.
 
 - `debug.c`, `debug.h`
 
-  디버깅을 지원하는 함수과 매크로 자세한 내용은 [디버깅 도구](introduction.md) 문서를 참조하십시오.
+  debugging을 돕는 함수·macro입니다. [Debugging Tools](../appendix/debugging_tools.md)를 참조하십시오.
 
 - `random.c`, `random.h`
 
-  가짜 무작위 숫자 생성기 랜덤 값의 실제 순서는 Pintos의 한 라운드에서 다른 라운드에 따라 다르지 않습니다.
+  pseudo-random number generator입니다. 기본적으로 생성하는 값의 순서는 Pintos를 다시 실행해도 달라지지 않습니다.
 
 - `round.h`
 
-  올림·내림 연산을 위한 매크로입니다.
+  rounding에 사용하는 macro입니다.
 
 - `syscall-nr.h`
 
-  시스템 콜 번호 프로젝트 2까지 사용되지 않았습니다.
+  system call 번호를 정의합니다. Project 2부터 사용합니다.
 
 - `kernel/list.c`, `kernel/list.h`
 
-  이중 연결된 목록 실행 Pintos 코드에 걸쳐 사용되었습니다. 프로젝트 1에서도 몇 번이나 사용하실 겁니다. **시작하기 전에 이 코드를 스캔하는 것이 좋습니다. (특히 헤더 파일에 있는 댓글)**
+  doubly linked list 구현입니다. Pintos 전반에서 사용하며 Project 1에서도 여러 곳에 활용할 수 있습니다. **시작 전에 이 코드, 특히 header의 주석을 훑어보는 것을 권장합니다.**
 
 - `kernel/bitmap.c`, `kernel/bitmap.h`
 
-  비트맵 구현 이 코드를 원하는 경우 사용할 수 있지만 프로젝트 1에서는 필요하지 않을 것입니다.
+  bitmap 구현입니다. 필요하면 사용해도 되지만 Project 1에서는 보통 필요하지 않습니다.
 
 - `kernel/hash.c`, `kernel/hash.h`
 
-  해시 테이블 구현 프로젝트 3에 유용하게 사용될 가능성이 높습니다.
+  hash table 구현입니다. Project 3에서 유용하게 사용할 수 있습니다.
 
 - `kernel/console.c`, `kernel/console.h`, `kernel/stdio.h`
 
-  `printf()` 및 다른 몇 가지 함수를 구현합니다.
+  `printf()`와 몇 가지 다른 함수를 구현합니다.
 
 <a id="synchronization"></a>
 
-### 동기화
+### Synchronization
 
-적절한 동기화는 이러한 문제에 대한 해결책의 중요한 부분입니다. 모든 동기화 문제는 인터럽트를 끄면 쉽게 해결할 수 있습니다. 인터럽트가 꺼져있는 동안, 동시성은 없습니다. 따라서 경주 조건의 가능성은 없습니다. 따라서 모든 동기화 문제를 이런 식으로 해결하는 것이 유혹적이지만 그렇지 않습니다. 대신, 대부분의 동기화 문제를 해결하기 위해 세마포어, 잠금, 상태 변수를 사용하십시오. 동기화에 대한 투어 섹션 ([동기화](../appendix/synchronization.md)) 또는 `threads/synch.c`에 대한 댓글을 읽으십시오. 어떤 상황에서 어떤 동기화 원시제가 사용될 수 있는지 확실하지 않은 경우.
+올바른 synchronization은 이 과제의 중요한 부분입니다. interrupt를 끄면 동시 실행이 일어나지 않아 race condition을 쉽게 피할 수 있지만, 모든 문제를 이 방식으로 해결해서는 안 됩니다. 대부분의 synchronization에는 semaphore, lock, condition variable을 사용하십시오. 어떤 상황에 어떤 primitive를 사용할 수 있는지 불분명하다면 [Synchronization](../appendix/synchronization.md)이나 `threads/synch.c`의 주석을 읽어 보십시오.
 
-Pintos 프로젝트에서, 인터럽트를 비활성화함으로써 가장 잘 해결되는 유일한 문제 클래스는 커널 스레드와 인터럽트 핸들러 사이에 공유된 데이터를 조정하는 것입니다. 인터럽트 핸들러들은 잠을 잘 수 없기 때문에, 그들은 잠금을 얻을 수 없습니다. 이것은 커널 스레드와 인터럽트 핸들러 사이에 공유되는 데이터가 인터럽트를 끄는 방식으로 커널 스레드 내에서 보호되어야 한다는 것을 의미합니다.
+Pintos에서 interrupt를 끄는 방법이 적합한 대표적인 경우는 kernel thread와 interrupt handler가 공유하는 데이터를 보호할 때입니다. interrupt handler는 sleep할 수 없어 lock을 획득할 수 없습니다. 따라서 kernel thread가 handler와 공유하는 데이터에 접근할 때는 interrupt를 꺼서 보호해야 합니다.
 
-이 프로젝트는 인터럽트 핸들러에서 약간의 스레드 상태에 접근 할 필요가 있습니다. 시계를 깨우기 위해 타이머 인터럽트는 잠을 자고 있는 끈을 깨우쳐야 합니다. 고급 스케줄러에서 타이머 인터럽트는 몇 가지 글로벌 및 각 스레드 변수에 접근해야합니다. 이 변수를 커널 스레드에서 접근 할 때 타이머 인터럽트가 방해되는 것을 방지하기 위해 인터럽트를 비활성화해야합니다.
+이번 프로젝트에서 interrupt handler가 접근해야 하는 thread 상태는 많지 않습니다. alarm clock에서는 timer interrupt가 sleeping thread를 깨워야 합니다. advanced scheduler에서는 timer interrupt가 일부 전역 변수와 thread별 변수에 접근합니다. kernel thread에서 이 변수들을 다룰 때는 timer interrupt가 중간에 개입하지 않도록 interrupt를 꺼야 합니다.
 
-인터럽트를 끄면 가능한 한 적은 양의 코드를 사용하도록 조심하세요. 그렇지 않으면 타이머 틱이나 입력 이벤트와 같은 중요한 것들을 잃게 될 수도 있습니다. 인터럽트를 끄는 것은 또한 인터럽트 핸들링 지연 시간을 증가시킵니다. 이 때문에 너무 멀리 이동하면 기계가 느리게 느껴질 수 있습니다.
+interrupt를 끄는 코드 구간은 최대한 짧게 유지하십시오. 그렇지 않으면 timer tick이나 입력 event를 놓칠 수 있습니다. interrupt 처리 지연도 길어지므로, 지나치면 시스템이 느리게 반응합니다.
 
-`synch.c`의 동기화 원시물 자체는 인터럽트를 비활성화하여 구현된다. 여기서 인터럽트가 비활성화되어 실행되는 코드의 양을 증가시켜야 할 수도 있지만 여전히 최소한으로 유지하려고 노력해야 합니다.
+`synch.c`의 synchronization primitive 자체도 interrupt를 꺼서 구현합니다. 이 파일에서 interrupt가 꺼진 구간을 늘려야 할 수 있지만, 그래도 가능한 한 짧게 유지하십시오.
 
-인터럽트를 비활성화하는 것은 디버깅을 위해 유용할 수 있습니다. 코드 섹션이 중단되지 않는지 확인하려면요. 프로젝트를 시작하기 전에 디버깅 코드를 제거해야 합니다. (이번 코드는 읽기 어려울 수 있기 때문에 그냥 댓글을 달지 마세요.)
+특정 코드 구간이 interrupt에 의해 중단되지 않게 하려는 debugging 용도로도 interrupt 비활성화를 사용할 수 있습니다. 제출 전에는 이런 debugging 코드를 제거하십시오. 읽기 어려운 코드를 남기지 않도록 주석 처리만 하지 말고 삭제하십시오.
 
-당신의 제출에 바쁜 기다림이 없어야 합니다. `thread_yield()`을 호출하는 긴 loop은 바쁜 대기의 한 형태입니다.
+제출물에는 busy waiting이 없어야 합니다. `thread_yield()`를 반복 호출하는 짧은 loop도 busy waiting의 한 형태입니다.
 
 <a id="development-suggestions"></a>
 
 ### 개발 제안
 
-과거에는 많은 그룹들이 업무를 조각으로 나눴고, 그 후 각 그룹 구성원은 임기 직전까지 자신의 작품을 작업했습니다. 그 때 그룹은 다시 모여 코드를 조합하고 제출했습니다. 이건 나쁜 생각이야 우리는 이런 접근을 권장하지 않습니다. 이렇게 하는 그룹들은 종종 두 가지 변경 사항이 서로 충돌하는 것을 발견하고, 마지막 순간에 많은 디버깅을 필요로 합니다. 이런 작업을 해온 몇몇 그룹들은 심지어 컴파일이나 부팅을 하지 못했던 코드를 내놓았고, 어떤 테스트도 통과하지 못했다.
+예전에는 과제를 나누어 각자 작업하다가 마감 직전에 코드를 합쳐 제출하는 팀이 많았습니다. 이 방식은 권장하지 않습니다. 마지막에 변경 사항이 충돌해 debugging에 많은 시간을 쓰기 쉽고, 테스트는커녕 컴파일이나 부팅도 되지 않는 코드를 제출한 사례도 있었습니다.
 
-대신 [git](https://git-scm.com/docs/gittutorial)와 같은 소스 코드 제어 시스템을 사용하여 팀의 변경 사항을 일찍 자주 통합하는 것이 좋습니다. 이것은 놀라움을 줄일 확률이 낮습니다. 왜냐하면 모든 사람이 다른 사람의 코드를 작성된 상태에서 볼 수 있기 때문입니다. 이러한 시스템은 또한 변경 사항을 검토하고, 변경이 버그를 도입하면 코드의 작동 버전으로 돌아갑니다.
+대신 <a href="https://git-scm.com/docs/gittutorial" target="_blank">git</a> 같은 version control system으로 변경 사항을 일찍부터 자주 통합하십시오. 완성된 뒤에야 코드를 보는 것이 아니라 작업 중에도 서로의 코드를 볼 수 있어 예상하지 못한 문제를 줄일 수 있습니다. 변경 이력을 검토하고 버그를 도입한 변경을 이전의 정상 버전으로 되돌리는 데도 도움이 됩니다.
 
-이 프로젝트와 그 다음 프로젝트에서 작업하는 동안 단순히 이해하지 못하는 버그를 만나게 될 것으로 예상해야 합니다. 그렇게 할 때 디버깅 도구에 대한 첨부서를 다시 읽어보십시오. 이 문서에는 디버깅 팁이 가득합니다. 이 방법은 속도를 회복하는 데 도움이 될 것입니다. ([디버깅 도구](introduction.md)) 백트레이스 섹션 ([후퇴](introduction.md) 참조) 을 읽어 보시기 바랍니다. 이 섹션은 모든 커널 공황이나 인자 실패에서 최대한 이익을 얻을 수 있도록 도와줄 것입니다.
+이번 프로젝트와 이후 프로젝트에서 원인을 이해하기 어려운 버그를 만나게 될 것입니다. 그럴 때는 [Debugging Tools](../appendix/debugging_tools.md)를 다시 읽어 보십시오. 유용한 debugging 방법이 많습니다. 특히 [Backtraces](../appendix/debugging_tools.md#backtraces) 절을 읽으면 kernel panic이나 assertion failure에서 더 많은 정보를 얻을 수 있습니다.

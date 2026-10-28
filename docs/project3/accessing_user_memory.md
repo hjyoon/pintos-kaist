@@ -1,11 +1,11 @@
-> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project3/accessing_user_memory.md) · 수집일: 2026-10-17 · [한국어 목차](../README.md)
+> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project3/accessing_user_memory.md) · 수집일: 2026-10-17 · 대조·교정: 2026-10-28 · [목차](../README.md)
 
 <a id="accessing-user-memory"></a>
 
-# 유저 메모리 접근
+# User Memory 접근
 
-사용자 메모리에 접근할 수 있도록 코드를 조정해야 합니다 (시스템 호출을 처리하는 동안 [사용자 메모리에 접근](../project2/introduction.md) 섹션을 참조하십시오. 사용자 프로세스는 현재 파일 또는 교환 공간에 있는 콘텐츠를 가진 페이지에 접근할 수 있는 것처럼, 이러한 비주민 페이지를 참조하는 주소를 시스템 호출에 전달할 수 있습니다. 또한, 커널이 이를 방지하기 위해 조치를 취하지 않는 한, 커널 코드로 접근하는 동안에도 페이지가 프레임에서 제거될 수 있습니다. 만약 커널 코드가 이러한 비주민 사용자 페이지에 접속하면 페이지 폴트가 발생한다.
+system call을 처리하는 코드도 VM 환경에 맞춰 수정해야 합니다. [User memory 접근](../project2/introduction.md)을 참조하십시오. user process가 file이나 swap에 있는 non-resident page에 접근할 수 있듯이, system call에도 이런 page의 주소를 넘길 수 있습니다. 별도 보호가 없다면 kernel이 접근하는 도중에도 page가 frame에서 evict될 수 있습니다. kernel이 non-resident user page를 접근하면 page fault가 발생합니다.
 
-사용자 메모리에 접근 할 때, 여러분의 커널은 그러한 페이지 폴트를 처리할 준비가 되어 있어야 합니다. 또는 이러한 오류가 발생하지 않도록 해야 합니다. 커널은 이러한 페이지 폴트를 방지해야 하며 이러한 오류를 처리하기 위해 필요한 자원을 보유해야 합니다. Pintos에서, 이러한 리소스는 파일 시스템과 교환 공간을 포함하는 장치를 제어하는 장치 드라이버가 획득한 잠금을 포함한다. 구체적인 예로, 장치 드라이버가 `file_read`에 전달된 사용자 버퍼에 접근하는 동안 페이지 폴트가 발생하도록 허용해서는 안 됩니다. 왜냐하면 이러한 오류를 처리하는 동안 드라이버를 호출할 수 없기 때문입니다.
+kernel은 이런 page fault를 처리할 수 있어야 하거나, 접근 중 fault가 발생하지 않도록 막아야 합니다. 특히 fault 처리에 필요한 자원을 이미 보유한 동안에는 fault를 예방해야 합니다. 예를 들어 file system이나 swap device driver의 lock이 해당합니다. driver가 `file_read`에 전달된 user buffer에 접근하는 중 fault가 발생하면, 그 fault를 처리하려고 같은 driver를 다시 호출할 수 없으므로 이런 상황을 허용해서는 안 됩니다.
 
-이런 페이지 폴트를 막으려면 메모리에 접근하는 코드와 페이지 퇴거 코드가 협력해야 합니다. 예를 들어 프레임 테이블에 해당 페이지를 퇴거하면 안 되는 시점을 기록할 수 있습니다. 이를 프레임에 페이지를 고정하는 pinning 또는 locking이라고도 합니다. 고정된 페이지는 교체 알고리즘이 퇴거 대상으로 선택할 수 없으므로, 필요한 시간보다 오래 고정하거나 불필요하게 고정하지 마세요.
+예방하려면 user memory 접근 코드와 page eviction 코드가 협력해야 합니다. frame table에 특정 frame의 page를 evict해서는 안 된다는 상태를 기록하는 방법이 있습니다. 이를 page를 frame에 pinning 또는 locking한다고 부릅니다. pinning은 replacement algorithm의 선택지를 줄이므로 꼭 필요한 경우에만, 필요한 시간 동안만 유지하십시오.

@@ -1,39 +1,39 @@
-> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project2/system_call.html) · 수집일: 2026-10-17 · [한국어 목차](../README.md)
+> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/project2/system_call.html) · 수집일: 2026-10-17 · 대조·교정: 2026-10-28 · [목차](../README.md)
 
 <a id="system-calls"></a>
 
-# 시스템 콜
+# System Calls
 
-**시스템 콜 기반 구조를 구현하세요.**
+**System call 기반 구조를 구현하십시오.**
 
-`userprog/syscall.c`에 시스템 콜 핸들러를 구현하세요. 제공된 기본 구현은 프로세스를 종료하는 방식으로 시스템 콜을 '처리'합니다. 실제 구현에서는 시스템 콜 번호와 인자를 가져온 다음 그에 맞는 동작을 수행해야 합니다.
+`userprog/syscall.c`에 system call handler를 구현합니다. 제공된 skeleton은 호출한 process를 종료하는 것만으로 system call을 처리합니다. system call 번호와 argument를 가져와 각 요청에 맞는 동작을 수행하도록 확장해야 합니다.
 
 <a id="system-call-details"></a>
 
-## 시스템 콜의 세부 사항
+## System Call의 세부 동작
 
-프로젝트 1에서는 OS가 유저 프로그램으로부터 제어를 되찾는 방법 중 하나인 타이머·입출력 장치의 인터럽트를 다뤘습니다. CPU 외부의 장치에서 발생하므로 이를 '외부' 인터럽트라고 합니다.
+Project 1에서는 timer와 I/O device가 발생시키는 interrupt를 통해 OS가 제어를 되찾는 방법을 다뤘습니다. CPU 바깥의 장치에서 발생하므로 external interrupt라고 부릅니다.
 
-OS는 프로그램 코드에서 발생하는 소프트웨어 예외도 처리합니다. 페이지 폴트나 0으로 나누기 같은 오류가 이에 해당합니다. 예외는 유저 프로그램이 OS에 서비스, 즉 시스템 콜을 요청하는 수단이기도 합니다.
+OS는 프로그램 실행 중 발생하는 software exception도 처리합니다. page fault나 0으로 나누기 같은 오류가 그 예입니다. exception은 user program이 OS에 서비스를 요청하는 system call의 수단으로도 사용됩니다.
 
-기존 x86에서는 시스템 콜을 다른 소프트웨어 예외와 같은 방식으로 처리했습니다. 하지만 x86-64에서는 제조사가 시스템 콜 전용 명령인 `syscall`을 도입했습니다. 이 명령을 사용하면 시스템 콜 핸들러를 빠르게 호출할 수 있습니다.
+기존 x86에서는 system call도 다른 software exception과 같은 방식으로 처리했습니다. x86-64에는 handler를 빠르게 호출하기 위한 전용 명령인 `syscall`이 도입되었습니다.
 
-현재 x86-64에서 시스템 콜을 호출하는 가장 일반적인 방법은 `syscall` 명령입니다. Pintos의 유저 프로그램도 `syscall`를 실행해 시스템 콜을 요청합니다. `syscall` 명령을 실행하기 전에 일반 호출 규약에 따라 번호와 추가 인자를 레지스터에 넣되, 다음 두 가지는 다릅니다.
+현재 x86-64에서 system call을 호출하는 가장 일반적인 방법은 `syscall` 명령입니다. Pintos의 user program도 `syscall`을 사용합니다. `syscall`을 실행하기 전에 번호와 argument를 register에 넣어야 합니다. 일반 calling convention과 비교하면 다음 두 가지가 다릅니다.
 
-- `%rax`에는 시스템 콜 번호를 넣습니다.
-- 네 번째 인자는 `%rcx`가 아니라 `%r10`에 넣습니다.
+- `%rax`에는 system call 번호를 넣습니다.
+- 네 번째 argument는 `%rcx`가 아니라 `%r10`로 전달합니다.
 
-따라서 시스템 콜 핸들러 `syscall_handler()`가 제어를 받으면 번호는 rax에 있고, 인자는 %rdi, %rsi, %rdx, %r10, %r8, %r9 순서로 전달됩니다.
+따라서 `syscall_handler()`로 제어가 넘어오면 rax에 system call 번호가 있고, argument는 %rdi, %rsi, %rdx, %r10, %r8, %r9 순서로 전달됩니다.
 
-호출자의 레지스터는 전달받은 `struct intr_frame`를 통해 접근할 수 있습니다. `struct intr_frame`은 커널 스택에 있습니다.
+호출자의 register는 handler에 전달된 `struct intr_frame`을 통해 접근할 수 있습니다. `struct intr_frame`은 kernel stack에 있습니다.
 
-x86-64 함수 호출 규약에서는 반환값을 RAX 레지스터에 넣습니다. 값을 반환하는 시스템 콜은 `struct intr_frame`의 `rax` 멤버를 수정해 반환값을 전달할 수 있습니다.
+x86-64는 함수 반환값을 RAX에 넣습니다. 값을 반환하는 system call도 `struct intr_frame`의 `rax` member를 수정해 결과를 전달할 수 있습니다.
 
 <a id="implement-the-following-system-calls"></a>
 
-## 구현해야 할 시스템 콜
+## 구현할 System Call
 
-아래 원형은 `include/lib/user/syscall.h`를 포함한 유저 프로그램에서 보는 선언입니다. 이 헤더와 `include/lib/user`의 다른 헤더들은 유저 프로그램 전용입니다. 각 시스템 콜의 번호는 `include/lib/syscall-nr.h`에 정의돼 있습니다.
+아래 원형은 `include/lib/user/syscall.h`를 포함한 user program에서 보이는 선언입니다. 이 header와 `include/lib/user`의 나머지 header는 user program 전용입니다. system call 번호는 `include/lib/syscall-nr.h`에 정의되어 있습니다.
 
 ------------------------------------------------------------------------
 
@@ -41,7 +41,7 @@ x86-64 함수 호출 규약에서는 반환값을 RAX 레지스터에 넣습니�
 void halt (void);
 ```
 
-> `src/include/threads/init.h`에 선언된 `power_off()`을 호출해 Pintos를 종료합니다. 잠재적인 교착 상태 등에 대한 정보를 잃을 수 있으므로 가급적 드물게 사용해야 합니다.
+> `src/include/threads/init.h`에 선언된 `power_off()`를 호출해 Pintos를 종료합니다. deadlock 등의 문제를 조사할 정보가 사라지므로 드물게 사용해야 합니다.
 
 ------------------------------------------------------------------------
 
@@ -49,7 +49,7 @@ void halt (void);
 void exit (int status);
 ```
 
-> 현재 유저 프로그램을 종료하고 `status`를 커널에 전달합니다. 부모가 이 프로세스에 대해 아래의 `wait`를 호출하면 이 상태값을 받습니다. 관례적으로 `status`가 `0`이면 성공이고, 0이 아니면 오류입니다.
+> 현재 user program을 종료하고 kernel에 `status`를 전달합니다. parent가 해당 process에 대해 `wait`를 호출하면 이 상태값을 받습니다. 관례상 `status`가 `0`이면 성공, 그 외 값이면 오류를 뜻합니다.
 
 ------------------------------------------------------------------------
 
@@ -57,9 +57,9 @@ void exit (int status);
 pid_t fork (const char *thread_name);
 ```
 
-> 현재 프로세스를 복제한 새 프로세스를 THREAD_NAME이라는 이름으로 만듭니다. 피호출자 보존 레지스터인 `%RBX`, `%RSP`, `%RBP`, `%R12`~`%R15`을 제외한 레지스터 값은 복제할 필요가 없습니다. 부모에는 자식 프로세스의 pid를 반환하며 실패 시 유효하지 않은 pid를 반환해야 합니다. 자식에서의 반환값은 `0`이어야 합니다. 자식은 파일 디스크립터와 가상 메모리 공간을 포함해 **복제된** 자원을 가져야 합니다. 부모는 자식이 복제에 성공했는지 확인하기 전까지 fork에서 반환해서는 안 됩니다. 자원 복제에 실패하면 부모의 fork() 호출은 TID_ERROR를 반환해야 합니다.
+> 현재 process를 복제해 THREAD_NAME이라는 새 process를 만듭니다. callee-saved register인 `%RBX`, `%RSP`, `%RBP`, `%R12`부터 `%R15`까지를 제외한 나머지 register 값은 반드시 복제할 필요는 없습니다. parent에는 child의 pid를 반환하고, 실패 시에는 유효한 pid가 아닌 값을 반환해야 합니다. child에서의 반환값은 `0`입니다. file descriptor와 virtual address space를 포함한 자원을 **복제**해야 합니다. parent는 child의 복제 성공 여부를 알기 전까지 fork에서 반환해서는 안 됩니다. child가 자원 복제에 실패하면 parent의 fork()도 TID_ERROR를 반환해야 합니다.
 >
-> 제공된 코드는 `threads/mmu.c`의 `pml4_for_each()`를 이용해 페이지 테이블 구조를 포함한 전체 유저 메모리 공간을 복사합니다. 하지만 전달하는 `pte_for_each_func`의 빠진 부분은 직접 채워야 합니다. [가상 주소](../appendix/virtual_address.md)를 참고하세요.
+> template은 `threads/mmu.c`의 `pml4_for_each()`로 page table 구조를 포함한 user memory 전체를 복사합니다. 여기에 전달하는 `pte_for_each_func`의 미완성 부분은 직접 구현해야 합니다. [Virtual Address](../appendix/virtual_address.md)를 참조하십시오.
 
 ------------------------------------------------------------------------
 
@@ -67,7 +67,7 @@ pid_t fork (const char *thread_name);
 int exec (const char *cmd_line);
 ```
 
-> 현재 프로세스를 `cmd_line`에 지정된 실행 파일로 바꾸고 주어진 인자를 전달합니다. 성공하면 반환하지 않습니다. 어떤 이유로든 프로그램을 적재하거나 실행할 수 없으면 종료 상태 `-1`로 프로세스가 *종료됩니다*. 이 함수는 `exec`를 호출한 스레드의 이름을 바꾸지 않습니다. `exec` 호출 전후에도 열린 파일 디스크립터는 유지됩니다.
+> 현재 process의 실행 내용을 `cmd_line`가 지정하는 executable로 바꾸고 주어진 argument를 전달합니다. 성공하면 반환하지 않습니다. loading이나 실행이 어떤 이유로든 실패하면 exit status `-1`로 process를 *종료*합니다. `exec`를 호출한 thread의 이름은 바뀌지 않습니다. 열린 file descriptor는 `exec` 이후에도 유지됩니다.
 
 ------------------------------------------------------------------------
 
@@ -75,18 +75,18 @@ int exec (const char *cmd_line);
 int wait (pid_t pid);
 ```
 
-> 자식 프로세스 `pid`를 기다리고 종료 상태를 가져옵니다. `pid`가 아직 살아 있다면 종료할 때까지 기다린 뒤 `pid`가 exit에 전달한 값을 반환합니다. `pid`가 `exit()`를 호출하지 않고 예외 등으로 커널에 의해 종료됐다면 `wait(pid)`는 `-1`을 반환해야 합니다. 부모가 wait를 호출하기 전에 이미 자식이 종료됐어도 기다리는 것은 유효합니다. 커널은 부모가 자식의 종료 상태 또는 커널에 의해 종료됐다는 사실을 알 수 있게 해야 합니다.
+> child process `pid`를 기다리고 exit status를 받습니다. `pid`가 아직 실행 중이면 종료될 때까지 기다린 뒤 `pid`가 exit에 넘긴 값을 반환합니다. `pid`가 `exit()`를 호출하지 않고 exception 등으로 kernel에 의해 종료됐다면 `wait(pid)`는 `-1`을 반환해야 합니다. parent가 wait를 호출하기 전에 child가 이미 종료된 경우도 정상입니다. 이때도 child의 exit status 또는 kernel이 종료시켰다는 사실을 알아낼 수 있어야 합니다.
 >
-> 다음 조건 중 하나라도 참이면 `wait`는 즉시 실패하고 `-1`을 반환해야 합니다.
+> 다음 중 하나라도 해당하면 `wait`는 즉시 `-1`을 반환하며 실패해야 합니다.
 >
-> - `pid`가 호출한 프로세스의 직접적인 자식이 아닌 경우입니다. 호출자가 `fork`를 성공적으로 호출해 `pid`를 반환받았을 때에만 `pid`는 직접적인 자식입니다. 자식 관계는 상속되지 않습니다. A가 B를 만들고 B가 C를 만들었다면, B가 죽었더라도 A는 C를 기다릴 수 없습니다. A의 `wait(C)` 호출은 실패해야 합니다. 마찬가지로 부모가 먼저 종료해 고아가 된 프로세스에 새 부모를 배정하지 않습니다.
-> - `wait`를 호출하는 프로세스가 이미 `pid`에 대해 `wait`를 호출한 경우입니다. 각 자식에 대한 `wait`는 최대 한 번만 가능합니다.
+> - `pid`가 호출한 process의 직접적인 child가 아닙니다. `pid`가 직접적인 child이려면 그 process가 성공한 `fork`에서 반환값으로 `pid`를 받은 경우여야 합니다. child 관계는 상속되지 않습니다. A가 B를 만들고 B가 C를 만들었다면 B가 종료되어도 A는 C를 기다릴 수 없으며, A의 `wait(C)`는 실패해야 합니다. parent가 먼저 종료되어 orphan이 된 process에 새 parent를 배정하지도 않습니다.
+> - 호출한 process가 `pid`에 대해 이미 `wait`를 호출했습니다. 즉, `wait`를 호출하는 process는 특정 child에 대해 최대 한 번만 `wait`할 수 있습니다.
 
-프로세스는 여러 자식을 만들고 임의의 순서로 `wait`할 수 있으며, 일부 또는 모든 자식을 기다리지 않고 종료해도 됩니다. 설계할 때 가능한 모든 대기 순서를 고려해야 합니다. 부모가 기다리는지와 무관하게, 또 부모와 자식 중 누가 먼저 종료하는지와 무관하게 `struct thread`를 포함한 프로세스의 모든 자원을 해제해야 합니다.
+process는 여러 child를 만들고 어떤 순서로든 `wait`할 수 있으며, 일부 또는 모든 child를 기다리지 않고 종료해도 됩니다. 모든 경우를 고려하십시오. parent가 기다리는지, parent와 child 중 누가 먼저 종료되는지와 상관없이 `struct thread`를 포함한 process의 모든 자원은 해제해야 합니다.
 
-**최초 프로세스가 종료할 때까지 Pintos가 종료되지 않도록 보장해야 합니다**. 제공된 코드는 `threads/init.c`의 `main()`에서 `userprog/process.c`의 `process_wait()`를 호출해 이를 처리하려 합니다. 함수 위쪽의 주석에 따라 `process_wait()`를 구현한 다음, 이를 이용해 wait 시스템 콜을 구현하는 것을 권장합니다. 이때 사용할 함수는 `process_wait()`입니다.
+**최초 process가 종료되기 전에는 Pintos가 종료되지 않도록 해야 합니다.** 제공된 코드는 `threads/init.c`의 `main()`에서 `userprog/process.c`의 `process_wait()`를 호출해 이를 처리하려고 합니다. `process_wait()`를 함수 위의 주석에 맞춰 구현한 뒤, wait system call에서 `process_wait()`를 활용하는 방식을 권장합니다.
 
-이 시스템 콜은 다른 시스템 콜보다 구현할 내용이 훨씬 많습니다.
+이 system call은 나머지에 비해 구현할 작업량이 상당히 많습니다.
 
 ------------------------------------------------------------------------
 
@@ -94,7 +94,7 @@ int wait (pid_t pid);
 bool create (const char *file, unsigned initial_size);
 ```
 
-> 이름이 `file`이고 초기 크기가 `initial_size`바이트인 새 파일을 만듭니다. 성공하면 true, 실패하면 false를 반환합니다. 파일을 만드는 것과 여는 것은 별개입니다. 새 파일을 열려면 `open` 시스템 콜을 따로 호출해야 합니다.
+> 이름이 `file`이고 초기 크기가 `initial_size` bytes인 새 파일을 만듭니다. 성공하면 true, 실패하면 false를 반환합니다. 생성은 열기와 별개의 작업입니다. 새 파일을 열려면 `open` system call이 따로 필요합니다.
 
 ------------------------------------------------------------------------
 
@@ -102,7 +102,7 @@ bool create (const char *file, unsigned initial_size);
 bool remove (const char *file);
 ```
 
-> `file`라는 이름의 파일을 삭제합니다. 성공하면 true, 실패하면 false를 반환합니다. 파일이 열려 있는지와 관계없이 삭제할 수 있으며, 열린 파일을 삭제해도 닫히지는 않습니다. 자세한 내용은 [자주 묻는 질문](FAQ.md)의 열린 파일 삭제 설명을 참고하세요.
+> 이름이 `file`인 파일을 삭제합니다. 성공하면 true, 실패하면 false를 반환합니다. 열려 있는 파일도 삭제할 수 있으며, 삭제한다고 기존 descriptor가 닫히지는 않습니다. [FAQ의 열린 파일 삭제](FAQ.md)를 참조하십시오.
 
 ------------------------------------------------------------------------
 
@@ -110,7 +110,7 @@ bool remove (const char *file);
 int open (const char *file);
 ```
 
-> `file`라는 파일을 엽니다. 성공하면 파일 디스크립터(fd)라는 음수가 아닌 정수 핸들을, 열 수 없으면 `-1`을 반환합니다. 0번과 1번은 콘솔용으로 예약돼 있습니다. fd 0(`STDIN_FILENO`)은 표준 입력, fd 1(`STDOUT_FILENO`)은 표준 출력입니다. `open` 시스템 콜은 이 두 값을 반환하지 않으며, 이 값들을 인자로 사용할 수 있는 경우는 아래에 명시된 것뿐입니다. 프로세스마다 독립적인 파일 디스크립터 집합을 가지고 자식은 이를 상속합니다. 한 프로세스에서든 여러 프로세스에서든 같은 파일을 여러 번 열면 매번 새 디스크립터를 받습니다. 같은 파일의 서로 다른 디스크립터는 close를 각각 호출해 닫으며 파일 위치를 공유하지 않습니다. **추가 과제를 수행하려면 0부터 시작하는 정수를 반환하는 Linux 방식을 따라야 합니다.**
+> 이름이 `file`인 파일을 엽니다. 성공하면 file descriptor(fd)라는 음이 아닌 정수 handle을, 실패하면 `-1`을 반환합니다. 기본 요구사항에서 fd 0(`STDIN_FILENO`)은 standard input, fd 1(`STDOUT_FILENO`)은 standard output으로 예약되어 있습니다. 기본 `open`는 이 번호를 반환하지 않으며, 아래에서 명시한 경우에만 system call argument로 사용할 수 있습니다. descriptor 집합은 process별로 독립적이며 child는 parent의 descriptor를 상속합니다. 같은 파일을 여러 번 열면 호출마다 새 descriptor를 반환합니다. 각 open의 descriptor는 독립적으로 close하며 file position도 공유하지 않습니다. **Extra를 구현할 때는 Linux처럼 0부터 사용 가능한 descriptor 번호를 배정해야 합니다.**
 
 ------------------------------------------------------------------------
 
@@ -118,7 +118,7 @@ int open (const char *file);
 int filesize (int fd);
 ```
 
-> `fd`로 열린 파일의 크기를 바이트 단위로 반환합니다.
+> `fd`로 열린 파일의 크기를 bytes 단위로 반환합니다.
 
 ------------------------------------------------------------------------
 
@@ -126,7 +126,7 @@ int filesize (int fd);
 int read (int fd, void *buffer, unsigned size);
 ```
 
-> `fd`로 열린 파일에서 `size`바이트를 읽어 `buffer`에 저장합니다. 실제 읽은 바이트 수를 반환하며 파일 끝에서는 `0`을 반환합니다. 파일 끝 이외의 이유로 읽을 수 없으면 `-1`을 반환합니다. `fd` 0에서는 `input_getc()`를 이용해 키보드 입력을 읽습니다.
+> `fd`로 열린 파일에서 `size` bytes를 읽어 `buffer`에 저장합니다. 실제 읽은 byte 수를 반환하며 EOF에서는 `0`을 반환합니다. EOF 이외의 문제로 읽지 못하면 `-1`을 반환합니다. `fd` 0은 `input_getc()`로 keyboard 입력을 읽습니다.
 
 ------------------------------------------------------------------------
 
@@ -134,7 +134,7 @@ int read (int fd, void *buffer, unsigned size);
 int write (int fd, const void *buffer, unsigned size);
 ```
 
-> `buffer`에서 `size`바이트를 가져와 열린 파일 `fd`에 씁니다. 실제 쓴 바이트 수를 반환하며, 일부를 쓰지 못하면 `size`보다 작을 수 있습니다. 일반적으로 파일 끝을 넘겨 쓰면 파일이 확장되지만 기본 파일 시스템에는 확장이 구현돼 있지 않습니다. 따라서 파일 끝까지 가능한 만큼 쓰고 실제 쓴 양을 반환하며, 한 바이트도 쓸 수 없다면 `0`을 반환해야 합니다. `fd` 1은 콘솔에 씁니다. 콘솔 출력은 적어도 버퍼가 수백 바이트 이하인 경우 `putbuf()`를 한 번 호출해 전체 버퍼를 써야 합니다. 더 큰 버퍼는 나눠도 됩니다. 그렇지 않으면 여러 프로세스의 출력 줄이 뒤섞여 사람과 채점 스크립트 모두 혼동할 수 있습니다.
+> `buffer`에서 `size` bytes를 가져와 열린 파일 `fd`에 씁니다. 실제 기록한 byte 수를 반환하며 전부 쓸 수 없으면 `size`보다 작을 수 있습니다. 일반적인 file system은 EOF 너머의 쓰기로 파일을 확장하지만, 기본 Pintos file system은 file growth를 지원하지 않습니다. 따라서 EOF까지 가능한 만큼 쓰고 그 수를 반환하며, 전혀 쓰지 못하면 `0`을 반환해야 합니다. `fd` 1은 console 출력입니다. 적어도 수백 bytes 이하의 buffer는 `putbuf()` 호출 한 번으로 전부 출력하십시오. 더 큰 buffer를 나누는 것은 괜찮습니다. 그렇지 않으면 여러 process의 출력이 섞여 사람이 읽기 어렵고 채점 스크립트도 혼동할 수 있습니다.
 
 ------------------------------------------------------------------------
 
@@ -142,7 +142,7 @@ int write (int fd, const void *buffer, unsigned size);
 void seek (int fd, unsigned position);
 ```
 
-> 열린 파일 `fd`에서 다음에 읽거나 쓸 위치를 파일 시작점 기준 `position`바이트로 바꿉니다. 즉 `position`이 `0`이면 파일의 시작입니다. 현재 파일 끝을 넘는 seek도 오류가 아닙니다. 그 뒤 `read`는 파일 끝을 나타내는 0바이트를 읽고, `write`는 파일을 확장하면서 쓰지 않은 틈을 0으로 채웁니다. 다만 프로젝트 4 전까지 Pintos 파일 길이는 고정돼 있으므로 파일 끝을 넘는 `write`는 오류를 반환합니다. 이런 동작은 파일 시스템에 구현돼 있어 시스템 콜에서 특별히 처리할 필요가 없습니다.
+> 열린 파일 `fd`에서 다음에 읽거나 쓸 위치를 파일 시작부터 `position` bytes 떨어진 곳으로 바꿉니다. 따라서 `position`가 `0`이면 파일의 시작입니다. EOF 너머로 seek하는 것은 오류가 아닙니다. 이후 `read`는 EOF를 뜻하는 0 bytes를 반환합니다. 파일 확장을 지원하면 `write`가 파일을 늘리고 빈 간격을 0으로 채웁니다. 다만 Project 4 전에는 파일 크기가 고정되어 EOF 너머의 `write`는 확장할 수 없으며, 반환값은 앞의 write 요구사항을 따라야 합니다. 이 동작은 file system에 구현되어 있으므로 system call에서 따로 구현할 필요는 없습니다.
 
 ------------------------------------------------------------------------
 
@@ -150,7 +150,7 @@ void seek (int fd, unsigned position);
 unsigned tell (int fd);
 ```
 
-> 열린 파일 `fd`에서 다음에 읽거나 쓸 위치를 파일 시작점 기준 바이트 수로 반환합니다.
+> 열린 파일 `fd`에서 다음에 읽거나 쓸 위치를 파일 시작부터의 byte offset으로 반환합니다.
 
 ------------------------------------------------------------------------
 
@@ -158,14 +158,14 @@ unsigned tell (int fd);
 void close (int fd);
 ```
 
-> 파일 디스크립터 `fd`를 닫습니다. 프로세스가 정상 또는 비정상 종료할 때에는 이 함수를 각각 호출한 것처럼 열린 모든 디스크립터를 암묵적으로 닫습니다.
+> file descriptor `fd`를 닫습니다. process가 종료되면 이 함수를 각 descriptor에 호출한 것처럼 열린 descriptor를 모두 닫아야 합니다.
 
-이 파일에는 다른 시스템 콜도 정의돼 있지만 지금은 무시하세요. 일부는 프로젝트 3, 나머지는 프로젝트 4에서 구현하므로 확장성을 고려해 설계해야 합니다.
+파일에는 다른 system call도 정의되어 있습니다. 일부는 Project 3, 나머지는 Project 4에서 구현하므로 지금은 넘어가되 확장 가능성을 고려해 설계하십시오.
 
-여러 유저 프로세스가 동시에 시스템 콜을 호출할 수 있도록 동기화해야 합니다. 특히 `filesys`에 제공된 파일 시스템 코드를 여러 스레드가 동시에 호출하는 것은 안전하지 않습니다. 시스템 콜 구현에서는 파일 시스템 코드를 임계 구역으로 다뤄야 합니다. `process_exec()`도 파일에 접근한다는 점을 잊지 마세요. 현재 단계에서는 `filesys`의 코드를 수정하지 않는 것을 권장합니다.
+여러 user process가 동시에 system call을 호출해도 안전하도록 synchronization해야 합니다. 특히 `filesys`에 제공된 file system 코드는 여러 thread가 동시에 호출하면 안전하지 않습니다. 이 코드 전체를 critical section으로 다뤄야 합니다. `process_exec()`도 파일에 접근한다는 점을 잊지 마십시오. 지금은 `filesys`의 코드를 수정하지 않는 것을 권장합니다.
 
-`lib/user/syscall.c`에 각 시스템 콜에 대응하는 유저 수준 함수를 제공합니다. 유저 프로세스는 이를 이용해 C 프로그램에서 시스템 콜을 호출합니다. 각 함수는 짧은 인라인 어셈블리로 시스템 콜을 요청하고, 반환값이 있는 경우 그 값을 반환합니다.
+각 system call의 user-level 함수는 `lib/user/syscall.c`에 제공됩니다. C 프로그램에서 호출하면 짧은 inline assembly로 system call을 요청하고, 반환값이 있으면 그 결과를 돌려줍니다.
 
-이 부분을 완성한 뒤부터 Pintos는 유저 프로그램의 어떤 동작에도 견고해야 합니다. 유저 프로그램 때문에 OS가 충돌하거나 패닉, 단언 실패 또는 다른 오동작을 일으켜서는 안 됩니다. 테스트는 여러 방법으로 시스템 콜을 깨뜨리려 시도하므로 모든 경계 상황을 고려하고 처리해야 합니다. 유저 프로그램이 OS를 정지시킬 수 있는 유일한 방법은 halt 시스템 콜이어야 합니다.
+이 부분을 구현한 뒤부터는 user program의 어떤 동작도 OS를 crash시키거나 panic, assertion failure, 기타 오동작을 일으켜서는 안 됩니다. 테스트는 매우 다양한 방법으로 system call을 공격하므로 모든 corner case를 고려해야 합니다. user program이 OS를 종료할 수 있는 유일한 방법은 halt system call이어야 합니다.
 
-잘못된 인자가 시스템 콜에 전달됐을 때에는 반환값이 있는 호출에서 오류값을 반환하거나, 미정의 값을 반환하거나, 해당 프로세스를 종료하는 방식이 허용됩니다.
+invalid argument를 받았을 때는 값을 반환하는 호출에서 오류값을 반환하거나, 정의되지 않은 값을 반환하거나, 해당 process를 종료하는 방법을 사용할 수 있습니다.

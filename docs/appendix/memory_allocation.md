@@ -1,28 +1,30 @@
-> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/appendix/memory_allocation.html) · 수집일: 2026-10-17 · [한국어 목차](../README.md)
+> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/appendix/memory_allocation.html) · 수집일: 2026-10-17 · 대조·교정: 2026-10-28 · [목차](../README.md)
 
 <a id="memory-allocation"></a>
 
-# 메모리 할당
+# Memory Allocation
 
-Pintos는 두 개의 메모리 할당기를 포함하고 있는데 하나는 페이지의 단위로 메모리를 할당하고 다른 하나는 모든 크기의 블록을 할당할 수 있습니다.
+Pintos에는 page 단위로 할당하는 allocator와 임의 크기의 block을 할당하는 allocator가 있습니다.
 
 <a id="page-allocator"></a>
 
-## 페이지 할당자
+## Page Allocator
 
-`include/threads/palloc.h`에서 선언된 페이지 할당기는 페이지의 단위로 메모리를 할당합니다. 이것은 한 번에 한 페이지의 메모리를 할당하는 데 가장 자주 사용됩니다. 그러나 동시에 여러 인접 페이지도 할당 할 수 있습니다.
+`include/threads/palloc.h`에 선언된 page allocator는 page 단위로 memory를 할당합니다. 보통 한 page씩 사용하지만 여러 개의 연속 page를 한 번에 요청할 수도 있습니다.
 
-페이지 할당기는 할당된 메모리를 커널과 사용자 풀이라고 불리는 두 개의 풀로 나눕니다. 기본적으로 각 풀은 1MB 이상의 시스템 메모리의 절반을 얻지만, 분할은 **ul** 커널 명령 줄 옵션으로 변경할 수 있습니다. 할당 요청은 하나 또는 다른 풀에서 나온다. 한 수영장이 비어지면 다른 수영장은 여전히 무료 페이지를 가질 수 있습니다. 사용자 프로세스에 대한 메모리를 분할하는 데 사용자 풀과 다른 모든 분할에 대한 커널 풀을 사용해야 합니다. 이것은 프로젝트 3을 시작으로 중요해질 것입니다. 그 때까지, 모든 할당은 커널 풀에서 이루어져야 합니다.
+할당할 memory는 kernel pool과 user pool로 나뉩니다. 기본적으로 1 MB 이상의 system memory를 절반씩 나누며, **ul** kernel 옵션으로 비율을 바꿀 수 있습니다. 각 요청은 한 pool에서 할당하므로 한쪽이 비어도 다른 쪽에는 여유가 있을 수 있습니다. user process용 memory는 user pool, 나머지는 kernel pool을 사용합니다. 원문은 이 구분이 Project 3부터 중요해지고 그전에는 kernel pool을 사용한다고 설명합니다.
 
-각각의 풀의 사용은 비트맵으로 추적됩니다. n 페이지를 할당하도록 요청하면 n 연속 비트에 대한 비트맵을 스캔하여 해당 페이지가 무료임을 표시하고, 해당 비트들을 사용된 것으로 표시하기 위해 True로 설정합니다. 이것은 "첫 번째 적합" 할당 전략입니다.
+> **버전 주의:** 실제 skeleton의 user page 할당에는 Project 2에서도 PAL_USER를 사용하는 코드가 있습니다. 위 문장은 원문의 프로젝트 진행 설명이며, user page를 kernel pool로 바꾸라는 지시로 해석하지 마십시오.
 
-페이지 할당기는 분해될 수 있습니다. 즉, 무료 페이지가 사용된 페이지로 분리되기 때문에 n 또는 더 많은 페이지가 무료임에도 불구하고 n 인접한 페이지를 할당하는 것은 불가능할 수 있습니다. 사실 병리학적인 경우, 풀의 절반이 무료임에도 불구하고 2개의 연속 페이지를 할당하는 것은 불가능할 수 있습니다. 단일 페이지 요청은 파편화로 인해 실패할 수 없으므로 여러 인접 페이지에 대한 요청은 가능한 한 제한되어야합니다.
+각 pool은 page마다 bit 하나를 쓰는 bitmap으로 사용 상태를 추적합니다. n개 page 요청이 들어오면 false인 연속 bit n개를 찾아 true로 바꿉니다. 이를 first-fit allocation이라고 합니다.
 
-페이지는 인터럽트 컨텍스트에서 할당되지 않을 수 있지만, 자유롭게 할 수 있습니다.
+이 allocator도 fragmentation의 영향을 받습니다. 빈 page가 n개 이상이어도 사용 중인 page 사이에 흩어져 있으면 연속 n개를 할당할 수 없습니다. 심하면 절반이 비어도 연속한 두 page를 할당하지 못합니다. 한 page 요청은 fragmentation 때문에 실패하지 않으므로 여러 연속 page 요청은 가능한 한 줄이십시오.
 
-페이지가 해방되면 모든 바이트가 디버깅 도움으로 **0xcc**로 클리어됩니다 ([디버깅 팁](memory_allocation.md) 참조).
+interrupt context에서는 page를 할당할 수 없지만 해제할 수는 있습니다.
 
-페이지 할당기 유형 및 함수은 아래에 설명되어 있습니다.
+page를 해제하면 debugging을 돕기 위해 모든 byte를 **0xcc**로 채웁니다. [Debugging Tips](debugging_tools.md#tips)를 참조하십시오.
+
+주요 type과 함수는 다음과 같습니다.
 
 ------------------------------------------------------------------------
 
@@ -31,21 +33,21 @@ void *palloc_get_page (enum palloc_flags flags)
 void *palloc_get_multiple (enum palloc_flags flags, size_t page_cnt)
 ```
 
-> 각각 한 페이지 또는 *page_cnt*개의 연속 페이지를 할당해 반환합니다. 할당할 수 없으면 널 포인터를 반환합니다.
+> 각각 한 page 또는 연속한 *page_cnt*개 page를 할당해 반환합니다. 할당할 수 없으면 null pointer를 반환합니다.
 >
-> *깃발* 인자은 다음과 같은 깃발의 조합이 될 수 있습니다.
+> *flags*에는 다음 flag를 조합할 수 있습니다.
 >
 > - `PAL_ASSERT`
 >
->   페이지를 할당할 수 없다면, 커널을 공황시킬 수 있습니다. 이것은 커널 초기화 중에만 적절하다. 사용자 프로세스는 결코 커널을 공황시킬 수 없어야 합니다.
+>   할당 실패 시 kernel panic을 발생시킵니다. kernel 초기화 단계에만 적절합니다. user process 때문에 kernel이 panic해서는 안 됩니다.
 >
 > - `PAL_ZERO`
 >
->   반환 전에 할당한 페이지의 모든 바이트를 0으로 채웁니다. 이 플래그를 지정하지 않으면 새 페이지의 내용은 예측할 수 없습니다.
+>   반환하기 전에 모든 byte를 0으로 채웁니다. 지정하지 않으면 새 page의 초기 내용은 보장되지 않습니다.
 >
 > - `PAL_USER`
 >
->   사용자 풀에서 페이지를 얻으십시오. 설정되지 않은 경우, 페이지는 커널 풀에서 할당됩니다.
+>   user pool에서 할당합니다. 지정하지 않으면 kernel pool을 사용합니다.
 
 ------------------------------------------------------------------------
 
@@ -54,27 +56,27 @@ void palloc_free_page (void *page)
 void palloc_free_multiple (void *pages, size_t page_cnt)
 ```
 
-> *페이지*에서 시작하는 한 페이지 또는 page cnt개의 연속 페이지를 각각 해제합니다. 모든 페이지는 `palloc_get_page()` 또는 `palloc_get_multiple()`로 할당받은 것이어야 합니다.
+> *pages*부터 한 page 또는 연속한 page_cnt개 page를 해제합니다. 모두 `palloc_get_page()`나 `palloc_get_multiple()`로 할당한 page여야 합니다.
 
 <a id="block-allocator"></a>
 
-## 블록 할당자
+## Block Allocator
 
-`threads/malloc.h`로 지정된 블록 할당기는 모든 크기의 블록을 할당할 수 있습니다. 이전 섹션에서 설명한 페이지 할당자 위에 층화됩니다. 블록 할당자가 반환한 블록은 커널 풀에서 얻습니다.
+`threads/malloc.h`의 block allocator는 임의 크기의 block을 할당합니다. page allocator 위에 구현되어 있으며, 반환하는 block의 memory는 kernel pool에서 가져옵니다.
 
-블록 할당기는 메모리를 할당하기 위해 두 가지 다른 전략을 사용합니다. 첫 번째 전략은 1kB 또는 작은 블록 (페이지 크기의 4분의 1) 에 적용됩니다. 이 분배는 가장 가까운 파워인 2 또는 16 바이트로 축적됩니다. 그런 다음 그 크기의 배당을 위해만 사용되는 페이지로 그룹화됩니다.
+크기에 따라 두 방식을 사용합니다. 1 kB 이하, 즉 page size의 1/4 이하인 요청은 16 bytes 이상인 가장 가까운 2의 거듭제곱 크기로 올림합니다. 그런 뒤 해당 크기 block만 저장하는 page에서 할당합니다.
 
-두 번째 전략은 1kB 이상의 블록에 적용됩니다. 이러한 할당 (그분의 약간의 오버헤드) 은 가장 가까운 페이지 크기로 둥글게 이루어지며, 블록 할당자는 페이지 할당기에서 그 인접 페이지의 숫자를 요청합니다.
+1 kB보다 큰 요청은 작은 관리 비용을 더한 크기를 page 단위로 올림한 뒤, page allocator에 필요한 수의 연속 page를 요청합니다.
 
-두 경우 모두 요청된 분배 크기와 실제 블록 크기의 차이가 낭비된다. 실제 운영체제는 이러한 폐기물을 최소화하기 위해 분배기를 조심스럽게 조정합니다. 하지만 Pintos와 같은 교육 시스템에서는 이것은 중요하지 않습니다.
+요청 크기와 실제 block 크기의 차이는 사용하지 못하는 공간입니다. 실제 OS는 이 낭비를 줄이도록 allocator를 조정하지만 교육용 Pintos에서는 크게 중요하지 않습니다.
 
-페이지 할당기에서 페이지를 얻을 수 있는 한, 작은 할당은 항상 성공합니다. 대부분의 작은 할당은 이미 할당된 페이지의 일부를 사용하여 만족하기 때문에 페이지 할당기에서 새로운 페이지를 전혀 필요로하지 않습니다. 그러나 큰 할당은 항상 페이지 할당자를 호출하는 것을 요구하고 있으며, 이전 섹션에서 이미 논의된 것처럼, 하나 이상의 인접 페이지가 필요한 할당은 분해로 인해 실패할 수 있습니다. 따라서, 코드에 큰 할당의 수를 최소화해야 합니다. 특히 각각 약 4kB 이상의 할당을 해야 합니다.
+작은 요청은 필요한 page를 얻을 수 있으면 성공하며, 대부분 이미 할당된 page의 일부를 재사용하므로 새 page도 필요하지 않습니다. 반면 큰 요청은 항상 page allocator를 호출합니다. 여러 연속 page가 필요하면 fragmentation 때문에 실패할 수 있으므로 큰 할당, 특히 약 4 kB를 넘는 요청은 줄이십시오.
 
-블록이 방출되면 모든 바이트가 디버깅 도움으로 **0xcc**로 클리어됩니다 ([디버깅 팁](memory_allocation.md) 참조).
+block을 해제하면 debugging을 돕기 위해 모든 byte를 **0xcc**로 채웁니다. [Debugging Tips](debugging_tools.md#tips)를 참조하십시오.
 
-블록 할당기는 인터럽트 컨텍스트에서 호출될 수 없습니다.
+interrupt context에서는 block allocator를 호출할 수 없습니다.
 
-블록 할당기 함수은 아래에 설명되어 있습니다. 그들의 인터페이스는 동일한 이름의 표준 C 라이브러리 함수과 동일합니다.
+다음 함수의 interface는 같은 이름의 표준 C library 함수와 같습니다.
 
 ------------------------------------------------------------------------
 
@@ -82,7 +84,7 @@ void palloc_free_multiple (void *pages, size_t page_cnt)
 void *malloc (size_t size)
 ```
 
-> 커널 풀에서 최소 *크기는*바이트인 새 블록을 할당해 반환합니다. size가 0이거나 메모리가 부족하면 널 포인터를 반환합니다.
+> kernel pool에서 최소 *size* bytes의 block을 할당해 반환합니다. size가 0이거나 공간이 부족하면 null pointer를 반환합니다.
 
 ------------------------------------------------------------------------
 
@@ -90,7 +92,7 @@ void *malloc (size_t size)
 void *calloc (size_t a, size_t b)
 ```
 
-> 커널 풀에서 최소 a \* b바이트인 새 블록을 할당해 반환하고 모든 바이트를 0으로 초기화합니다. a나 b가 0이거나 메모리가 부족하면 널 포인터를 반환합니다.
+> kernel pool에서 최소 a \* b bytes의 block을 할당해 0으로 채운 뒤 반환합니다. a나 b가 0이거나 공간이 부족하면 null pointer를 반환합니다.
 
 ------------------------------------------------------------------------
 
@@ -98,7 +100,7 @@ void *calloc (size_t a, size_t b)
 void *realloc (void *block, size_t new_size)
 ```
 
-> 필요하면 블록을 이동하면서 *블록*의 크기를 *new_size*바이트로 바꾸려 시도합니다. 성공하면 새 블록을 반환하며 이전 블록에 더 이상 접근하면 안 됩니다. 실패하면 널 포인터를 반환하고 이전 블록은 유효하게 남습니다. block이 널이면 `malloc()`와 같고, 새 크기가 0이면 `free()`와 같습니다.
+> *block*의 크기를 *new_size* bytes로 바꿉니다. 위치가 이동할 수 있습니다. 성공하면 새 block을 반환하고 이전 block에는 더 이상 접근해서는 안 됩니다. 실패하면 null pointer를 반환하며 이전 block은 계속 유효합니다. block이 null이면 `malloc()`과 같고, new_size가 0이면 `free()`와 같습니다.
 
 ------------------------------------------------------------------------
 
@@ -106,4 +108,4 @@ void *realloc (void *block, size_t new_size)
 void free (void *block)
 ```
 
-> 이전에 `malloc()`, `calloc()` 또는 `realloc()`가 반환했고 아직 해제하지 않은 *블록*을 해제합니다.
+> `malloc()`, `calloc()`, `realloc()` 중 하나로 반환받고 아직 해제하지 않은 *block*을 해제합니다.

@@ -1,10 +1,10 @@
-> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/appendix/virtual_address.html) · 수집일: 2026-10-17 · [한국어 목차](../README.md)
+> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/appendix/virtual_address.html) · 수집일: 2026-10-17 · 대조·교정: 2026-10-28 · [목차](../README.md)
 
 <a id="virtual-addresses"></a>
 
-# 가상 주소
+# Virtual Addresses
 
-64비트 가상 주소는 다음과 같이 구성되어 있습니다.
+64-bit virtual address의 구조는 다음과 같습니다.
 
     63          48 47            39 38            30 29            21 20         12 11         0
     +-------------+----------------+----------------+----------------+-------------+------------+
@@ -15,7 +15,7 @@
                   +------- 9 ------+------- 9 ------+------- 9 ------+----- 9 -----+---- 12 ----+
                                               Virtual Address
 
-헤더 `include/threads/vaddr.h` 및 `include/threads/mmu.h`는 가상 주소와 작업하기 위한 이러한 함수과 매크로를 정의합니다.
+`include/threads/vaddr.h`와 `include/threads/mmu.h` header는 virtual address를 다루는 다음 함수·macro를 정의합니다.
 
 ------------------------------------------------------------------------
 
@@ -24,7 +24,7 @@
 #define PGBITS { /* Omit details */ }
 ```
 
-> 가상 주소의 오프셋 부분의 비트 인덱스 (0) 및 비트 숫자 (12)
+> virtual address에서 offset 부분의 시작 bit index인 0과 bit 수인 12를 각각 나타냅니다.
 
 ------------------------------------------------------------------------
 
@@ -32,7 +32,7 @@
 #define PGMASK { /* Omit details */ }
 ```
 
-> 페이지 오프셋의 비트들이 1으로 설정된 비트 마스크, 나머지는 0 (0xfff) 로 설정된 비트 마스크
+> page offset에 해당하는 bits만 1이고 나머지는 0인 bit mask, 즉 0xfff입니다.
 
 ------------------------------------------------------------------------
 
@@ -40,7 +40,7 @@
 #define PGSIZE { /* Omit details */ }
 ```
 
-> 바이트의 페이지 크기는 (4,096)
+> byte 단위 page size로, 4,096입니다.
 
 ------------------------------------------------------------------------
 
@@ -48,7 +48,7 @@
 #define pg_ofs(va) { /* Omit details */ }
 ```
 
-> 가상 주소 va의 페이지 오프셋을 추출해 반환합니다.
+> virtual address va에서 page offset을 추출해 반환합니다.
 
 ------------------------------------------------------------------------
 
@@ -56,7 +56,7 @@
 #define pg_no(va) { /* Omit details */ }
 ```
 
-> 가상 주소 va의 페이지 번호를 추출해 반환합니다.
+> virtual address va에서 page number를 추출해 반환합니다.
 
 ------------------------------------------------------------------------
 
@@ -64,7 +64,7 @@
 #define pg_round_down(va) { /* Omit details */ }
 ```
 
-> va가 속한 가상 페이지의 시작 주소를 반환합니다. 즉 페이지 오프셋을 0으로 만든 va입니다.
+> va가 속한 virtual page의 시작 주소를 반환합니다. page offset을 0으로 만든 값입니다.
 
 ------------------------------------------------------------------------
 
@@ -72,11 +72,11 @@
 #define pg_round_up(va) { /* Omit details */ }
 ```
 
-> va를 가장 가까운 페이지 경계로 올림한 주소를 반환합니다.
+> va를 다음 page boundary로 올림한 주소를 반환합니다.
 
-Pintos의 가상 메모리는 사용자 가상 메모리와 커널 가상 메모리로 두 영역으로 나 ?? 다 ([가상 메모리 레이아웃](../project2/introduction.md) 참조).
+Pintos의 virtual memory는 user 영역과 kernel 영역으로 나뉩니다. [Virtual Memory Layout](../project2/introduction.md)을 참조하십시오.
 
-둘 사이의 경계는 `KERN_BASE`:
+두 영역의 경계는 `KERN_BASE`입니다.
 
 ------------------------------------------------------------------------
 
@@ -84,7 +84,7 @@ Pintos의 가상 메모리는 사용자 가상 메모리와 커널 가상 메모
 #define KERN_BASE { /* Omit details */ }
 ```
 
-> 커널 가상 메모리의 기본 주소는 기본값은 0x8004000000. 사용자 가상 메모리는 가상 주소 0에서 `KERN_BASE`까지 다양합니다. 커널 가상 메모리는 가상 주소 공간의 나머지 부분을 차지합니다.
+> kernel virtual memory의 시작 주소이며 기본값은 0x8004000000입니다. user 영역은 0부터 `KERN_BASE` 전까지이고, 나머지가 kernel 영역입니다.
 
 ------------------------------------------------------------------------
 
@@ -93,13 +93,13 @@ Pintos의 가상 메모리는 사용자 가상 메모리와 커널 가상 메모
 #define is_kernel_vaddr(vaddr) { /* Omit details */ }
 ```
 
-> va가 각각 유저 가상 주소 또는 커널 가상 주소이면 true, 아니면 false를 반환합니다.
+> va가 각각 user 또는 kernel virtual address이면 true, 아니면 false를 반환합니다.
 
 ------------------------------------------------------------------------
 
-x86-64은 물리적인 주소를 고려하면 메모리에 직접 접근할 수 있는 방법이 없습니다. 이 능력은 운영 체제 커널에서 종종 필요합니다. 그래서 Pintos는 커널 가상 메모리를 물리 메모리로 하나씩 매핑함으로써 그 주위에 작동합니다. 즉, 가상 주소는 \> `KERN_BASE`은 물리적 주소를 0, 가상 주소는 `KERN_BASE + 0x1234`은 물리적 주소를 0x1234, 그리고 기계의 물리적 메모리의 크기까지 접근합니다. 따라서 물리적 주소로 `KERN_BASE`을 추가하면 해당 주소에 접근하는 커널 가상 주소를 얻습니다. 반대로 커널 가상 주소에서 `KERN_BASE`을 빼면 해당 물리적 주소를 얻습니다.
+x86-64의 일반적인 memory 접근은 physical address를 직접 사용하지 않습니다. Pintos는 kernel 영역과 physical memory를 일대일로 대응시킵니다. virtual address `KERN_BASE`는 physical address 0에, `KERN_BASE + 0x1234`는 physical address 0x1234에 대응하며, 실제 physical memory 크기만큼 이어집니다. 따라서 physical address에 `KERN_BASE`를 더하면 대응하는 kernel virtual address가 되고, kernel virtual address에서 `KERN_BASE`를 빼면 physical address가 됩니다.
 
-헤더 `include/threads/vaddr.h`은 다음과 같은 번역을 수행하기 위해 몇 가지 함수를 제공합니다.
+`include/threads/vaddr.h`에는 이 변환을 위한 두 함수가 있습니다.
 
 ------------------------------------------------------------------------
 
@@ -107,7 +107,7 @@ x86-64은 물리적인 주소를 고려하면 메모리에 직접 접근할 수 
 #define ptov(paddr) { /* Omit details */ }
 ```
 
-> 물리 주소 pa에 대응하는 커널 가상 주소를 반환합니다. pa는 0 이상이고 전체 물리 메모리 바이트 수 범위 안에 있어야 합니다.
+> physical address pa에 대응하는 kernel virtual address를 반환합니다. pa는 실제 physical memory 범위 안에 있어야 합니다.
 
 ------------------------------------------------------------------------
 
@@ -115,9 +115,9 @@ x86-64은 물리적인 주소를 고려하면 메모리에 직접 접근할 수 
 #define vtop(vaddr) { /* Omit details */ }
 ```
 
-> 커널 가상 주소여야 하는 va에 대응하는 물리 주소를 반환합니다.
+> kernel virtual address va에 대응하는 physical address를 반환합니다.
 
-헤더 `include/threads/mmu.h`는 페이지 테이블에서 동작을 제공합니다:
+`include/threads/mmu.h`에는 page table을 다루는 operation이 있습니다.
 
 ------------------------------------------------------------------------
 
@@ -126,7 +126,7 @@ x86-64은 물리적인 주소를 고려하면 메모리에 직접 접근할 수 
 #define is_kern_pte(pte) { /* Omit details */ }
 ```
 
-> 페이지 테이블 엔트리 (PTE) 는 각각 사용자 또는 커널의 소유가 있는지 여부를 질문합니다.
+> PTE가 각각 user용인지 kernel용인지 판별합니다.
 
 ------------------------------------------------------------------------
 
@@ -134,7 +134,7 @@ x86-64은 물리적인 주소를 고려하면 메모리에 직접 접근할 수 
 #define is_writable(pte) { /* Omit details */ }
 ```
 
-> 페이지 테이블 엔트리(PTE)가 가리키는 가상 주소에 쓰기 가능한지 조회합니다.
+> PTE가 가리키는 virtual address에 쓰기가 허용되는지 판별합니다.
 
 ------------------------------------------------------------------------
 
@@ -143,9 +143,9 @@ typedef bool pte_for_each_func (uint64_t *pte, void *va, void *aux);
 bool pml4_for_each (uint64_t *pml4, pte_for_each_func *func, void *aux);
 ```
 
-> PML4 아래의 각 유효한 엔트리에 보조값 AUX와 함께 FUNC를 적용합니다. VA는 해당 엔트리의 가상 주소입니다. pte_for_each_func가 false를 반환하면 순회를 멈추고 false를 반환합니다.
+> PML4 아래의 유효한 각 entry에 보조 값 AUX와 함께 FUNC를 적용합니다. VA는 그 entry의 virtual address입니다. pte_for_each_func가 false를 반환하면 순회를 중단하고 false를 반환합니다.
 
-아래는 `pml4_for_each`에 전달할 수 있는 `func`의 예제입니다.
+다음은 `pml4_for_each`에 전달할 수 있는 `func`의 예입니다.
 
 ```
 static bool

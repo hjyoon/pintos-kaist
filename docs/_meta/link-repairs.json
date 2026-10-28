@@ -73,5 +73,53 @@
     "source": "project1/introduction.html",
     "original_href": "../appendix/memory_allocation.html#Block%20Allocator",
     "translated_href": "../appendix/memory_allocation.md#block-allocator"
+  },
+  {
+    "source": "appendix/memory_allocation.html",
+    "original_href": "",
+    "original_label": "Debugging Tips",
+    "translated_href": "debugging_tools.md#tips"
+  },
+  {
+    "source": "appendix/threads.html",
+    "original_href": "",
+    "original_label": "Backtraces",
+    "translated_href": "debugging_tools.md#backtraces"
+  },
+  {
+    "source": "appendix/threads.html",
+    "original_href": "virtual_address.html",
+    "original_label": "Page Tables",
+    "translated_href": "page_table.md"
+  },
+  {
+    "source": "project1/FAQ.html",
+    "original_href": "",
+    "original_label": "Backtraces",
+    "translated_href": "../appendix/debugging_tools.md#backtraces"
+  },
+  {
+    "source": "project1/introduction.html",
+    "original_href": "",
+    "original_label": "GDB",
+    "translated_href": "../appendix/debugging_tools.md#gdb"
+  },
+  {
+    "source": "project1/introduction.html",
+    "original_href": "",
+    "original_label": "Debugging Tools",
+    "translated_href": "../appendix/debugging_tools.md"
+  },
+  {
+    "source": "project1/introduction.html",
+    "original_href": "",
+    "original_label": "Backtraces",
+    "translated_href": "../appendix/debugging_tools.md#backtraces"
+  },
+  {
+    "source": "project2/FAQ.html",
+    "original_href": "",
+    "original_label": "GDB",
+    "translated_href": "../appendix/debugging_tools.md#gdb"
   }
 ]

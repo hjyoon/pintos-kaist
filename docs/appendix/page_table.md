@@ -1,16 +1,18 @@
-> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/appendix/page_table.html) · 수집일: 2026-10-17 · [한국어 목차](../README.md)
+> 원문: [공식 매뉴얼](https://casys-kaist.github.io/pintos-kaist/appendix/page_table.html) · 수집일: 2026-10-17 · 대조·교정: 2026-10-28 · [목차](../README.md)
 
 <a id="page-table"></a>
 
-# 페이지 테이블
+# Page Table
 
-`threads/mmu.c`의 코드는 x86_64 하드웨어 페이지 테이블의 추상 인터페이스입니다. Pintos의 페이지 테이블 (프로젝트에서 사용하려는 테이블) 은 인텔 프로세서 문서에 의해 페이지맵 레벨-4를 위해 `pml4`라고 불립니다. 테이블은 4 레벨을 가지고 있기 때문입니다. 페이지 테이블 인터페이스는 페이지 테이블을 표현하기 위해 `uint64_t *`을 사용합니다. 왜냐하면 이것은 내부 구조에 접근하는 데 편리하기 때문입니다. 아래 섹션에서는 페이지 테이블 인터페이스와 내부 내용을 설명합니다.
+`threads/mmu.c`는 x86-64 hardware page table을 추상화한 interface입니다. Intel 문서에서는 4-level page table의 최상위를 Page-Map-Level-4, 즉 `pml4`라고 부릅니다. Pintos interface는 내부 구조에 접근하기 편하도록 page table을 `uint64_t *`로 표현합니다. 아래에서 interface와 내부 동작을 설명합니다.
+
+> **원문 주의:** 아래 pml4_activate의 uint64 t와 pgdir_destory 등은 원문의 type·함수명 오타입니다. 실제 type은 uint64_t이며, 관련 선언과 구현은 include/threads/mmu.h 및 threads/mmu.c에서 확인하십시오.
 
 <a id="creation-destruction-and-activation"></a>
 
-## 생성, 해제, 활성화
+## 생성·해제·활성화
 
-이 함수은 페이지 테이블을 생성하고 파괴하고 활성화합니다. 기본 Pintos 코드는 필요한 경우 이미 이러한 함수를 호출하므로 직접 호출하는 것이 필요하지 않습니다.
+다음 함수는 page table을 만들고 해제하고 활성화합니다. 기본 코드가 필요한 위치에서 이미 호출하므로 보통 직접 호출할 필요는 없습니다.
 
 ------------------------------------------------------------------------
 
@@ -18,7 +20,7 @@
 uint64_t * pml4_create (void);
 ```
 
-> 새 페이지 테이블을 만들어 반환합니다. 일반적인 Pintos 커널 가상 페이지 매핑은 포함하지만 유저 가상 매핑은 없습니다. 메모리를 할당할 수 없으면 널 포인터를 반환합니다.
+> 새 page table을 만들어 반환합니다. 기본 kernel virtual mapping은 포함하지만 user virtual mapping은 없습니다. memory를 얻지 못하면 null pointer를 반환합니다.
 
 ------------------------------------------------------------------------
 
@@ -26,7 +28,7 @@ uint64_t * pml4_create (void);
 void pml4_destroy (uint64_t *pml4);
 ```
 
-> 페이지 테이블 자체와 매핑된 프레임을 포함해 pml4가 보유한 모든 자원을 해제합니다. *재귀적으로* `pdpe_destroy`, `pgdir_destory`, `pt_destroy`를 호출해 모든 단계의 자원을 해제합니다.
+> pml4 자체와 연결된 frame 등 그 page table이 보유한 자원을 해제합니다. `pdpe_destroy`, `pgdir_destory`, `pt_destroy`를 *재귀적으로* 호출해 모든 level을 정리합니다.
 
 ------------------------------------------------------------------------
 
@@ -34,13 +36,13 @@ void pml4_destroy (uint64_t *pml4);
 void pml4_activate (uint64 t *pml4)
 ```
 
-> pml4를 활성화합니다. CPU는 활성 페이지 테이블을 사용해 메모리 참조의 주소를 변환합니다.
+> pml4를 활성화합니다. CPU는 활성 page table로 memory address를 변환합니다.
 
 <a id="inspection-and-updates"></a>
 
 ## 조회와 갱신
 
-페이지 테이블에 담긴 페이지→프레임 매핑을 조회하거나 갱신합니다. 실행 중인 프로세스의 활성 테이블과 중단된 프로세스의 비활성 테이블 모두에 동작하며 필요하면 TLB를 비웁니다.
+다음 함수는 page-to-frame mapping을 조회하거나 변경합니다. 활성·비활성 page table, 즉 실행 중인 process와 실행을 멈춘 process의 table 양쪽에 사용할 수 있으며 필요하면 TLB를 flush합니다.
 
 ------------------------------------------------------------------------
 
@@ -48,7 +50,7 @@ void pml4_activate (uint64 t *pml4)
 bool pml4_set_page (uint64_t *pml4, void *upage, void *kpage, bool rw);
 ```
 
-> pd에 유저 페이지 upage에서 커널 가상 주소 kpage가 가리키는 프레임으로의 매핑을 추가합니다. rw가 true이면 읽기·쓰기를 허용하고, 아니면 읽기 전용으로 매핑합니다. upage는 pml4에 이미 매핑돼 있어서는 안 됩니다. kpage는 `palloc_get_page(PAL_USER)`를 이용해 유저 풀에서 할당받은 커널 가상 주소여야 합니다. 성공하면 true, 실패하면 false를 반환합니다. 페이지 테이블에 필요한 추가 메모리를 할당할 수 없으면 실패합니다.
+> user page upage에서 kernel virtual address kpage가 가리키는 frame으로의 mapping을 pml4에 추가합니다. rw가 true이면 read/write, false이면 read-only입니다. upage에는 기존 mapping이 없어야 합니다. kpage는 `palloc_get_page(PAL_USER)`로 user pool에서 얻은 frame의 kernel virtual address여야 합니다. 성공하면 true, page table에 필요한 추가 memory를 얻지 못하는 등 실패하면 false를 반환합니다.
 
 ------------------------------------------------------------------------
 
@@ -56,7 +58,7 @@ bool pml4_set_page (uint64_t *pml4, void *upage, void *kpage, bool rw);
 void * pml4_get_page (uint64_t *pml4, const void *uaddr);
 ```
 
-> pml4에서 uaddr에 매핑된 프레임을 찾습니다. 매핑이 있으면 그 프레임의 커널 가상 주소를, 없으면 널 포인터를 반환합니다.
+> pml4에서 uaddr에 연결된 frame을 찾습니다. mapping이 있으면 그 frame의 kernel virtual address를, 없으면 null pointer를 반환합니다.
 
 ------------------------------------------------------------------------
 
@@ -64,13 +66,13 @@ void * pml4_get_page (uint64_t *pml4, const void *uaddr);
 void pml4_clear_page (uint64_t *pml4, void *upage);
 ```
 
-> pml4에서 page를 '존재하지 않음'으로 표시해 이후 접근 시 폴트가 발생하게 합니다. 접근 비트와 더티 비트를 검사할 수 있도록 나머지 비트는 유지합니다. 다음 절을 참고하세요. page가 매핑돼 있지 않으면 아무 영향이 없습니다.
+> pml4에서 page를 not-present로 표시해 이후 접근 시 fault가 발생하게 합니다. accessed bit와 dirty bit 등을 나중에 확인할 수 있도록 다른 PTE bits는 보존합니다. mapping이 없으면 아무 효과가 없습니다.
 
 <a id="accessed-and-dirty-bits"></a>
 
-## 접근 비트와 더티 비트
+## Accessed Bit와 Dirty Bit
 
-x86_64 하드웨어는 페이지 테이블 엔트리(PTE)의 두 비트로 페이지 교체 알고리즘을 지원합니다. CPU는 페이지를 읽거나 쓸 때 해당 PTE의 접근 비트를 1로, 쓸 때에는 더티 비트도 1로 설정합니다. CPU는 이 비트들을 0으로 되돌리지 않지만 OS는 되돌릴 수 있습니다. 올바르게 해석하려면 같은 프레임을 참조하는 둘 이상의 페이지, 즉 *별칭*을 이해해야 합니다. 이런 프레임에 접근하면 실제 접근에 사용한 페이지의 PTE 하나만 갱신되며, 다른 별칭의 접근 비트와 더티 비트는 갱신되지 않습니다.
+x86-64는 각 page table entry(PTE)의 두 bit로 page replacement를 지원합니다. page를 읽거나 쓰면 accessed bit를 1로, 쓰면 dirty bit를 1로 설정합니다. CPU는 이 값을 0으로 되돌리지 않으며 OS가 해제할 수 있습니다. 해석할 때는 같은 frame을 가리키는 여러 page, 즉 *alias*를 고려해야 합니다. 접근에 실제 사용한 page의 PTE만 갱신되며 다른 alias의 accessed·dirty bit는 바뀌지 않습니다.
 
 ------------------------------------------------------------------------
 
@@ -79,7 +81,7 @@ bool pml4_is_dirty (uint64_t *pml4, const void *vpage);
 bool pml4_is_accessed (uint64_t *pml4, const void *vpage);
 ```
 
-> pml4에 vpage의 페이지 테이블 엔트리가 있고 더티 비트 또는 접근 비트가 설정돼 있으면 true, 아니면 false를 반환합니다.
+> pml4에 vpage의 PTE가 있고 dirty 또는 accessed로 표시되어 있으면 true, 아니면 false를 반환합니다.
 
 ------------------------------------------------------------------------
 
@@ -88,4 +90,4 @@ void pml4_set_dirty (uint64_t *pml4, const void *vpage, bool dirty);
 void pml4_set_accessed (uint64_t *pml4, const void *vpage, bool accessed);
 ```
 
-> pml4에 page의 페이지 테이블 엔트리가 있으면 더티 비트 또는 접근 비트를 주어진 값으로 설정합니다.
+> pml4에 page의 PTE가 있으면 dirty 또는 accessed bit를 주어진 값으로 설정합니다.
